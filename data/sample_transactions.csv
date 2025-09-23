@@ -1,0 +1,11 @@
+Date,Merchant,Amount,Category,Source,Notes
+2025-01-15,Tesco,45.50,Food,Card,Groceries
+2025-01-16,Cinema,12.00,Fun,Cash,Movie tickets
+2025-01-17,Shell,35.00,Transport,Card,Fuel
+2025-01-18,Amazon,25.99,Shopping,Card,Household items
+2025-01-19,Costa Coffee,4.50,Fun,Card,Coffee
+2025-01-20,Electricity Bill,85.00,Utilities,Direct Debit,Monthly bill
+2025-01-21,Sainsbury's,52.30,Food,Card,Groceries
+2025-01-22,Uber,15.50,Transport,Card,Taxi ride
+2025-01-23,Netflix,9.99,Fun,Card,Subscription
+2025-01-24,Water Bill,45.00,Utilities,Direct Debit,Monthly bill
