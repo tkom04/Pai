@@ -33,7 +33,7 @@ cp .env.example .env
 pip install -r requirements.txt
 
 # Run the application
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 ```
 
 ### 3. Docker Deployment
@@ -43,7 +43,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 docker build -t personal-ai .
 
 # Run with environment file
-docker run -d -p 8000:8000 --env-file .env personal-ai
+docker run -d -p 8080:8080 --env-file .env personal-ai
 ```
 
 ## API Endpoints
@@ -64,17 +64,17 @@ All endpoints require the `x-api-key` header except `/healthz`.
 
 ```bash
 # Health check
-curl -H "x-api-key: your-api-key" http://localhost:8000/ping
+curl -H "x-api-key: your-api-key" http://localhost:8080/ping
 
 # Add groceries
 curl -X POST -H "x-api-key: your-api-key" -H "Content-Type: application/json" \
   -d '{"item":"milk","qty":2,"notes":"semi-skimmed"}' \
-  http://localhost:8000/add_to_groceries
+  http://localhost:8080/add_to_groceries
 
 # Create event
 curl -X POST -H "x-api-key: your-api-key" -H "Content-Type: application/json" \
   -d '{"title":"Dentist","start":"2025-02-01T16:00:00+01:00","end":"2025-02-01T16:30:00+01:00"}' \
-  http://localhost:8000/create_event
+  http://localhost:8080/create_event
 ```
 
 ## Architecture
