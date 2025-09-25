@@ -78,3 +78,6 @@ get_*.py
 *.temp
 .tmp/
 .temp/
+
+# Cursor rules (contains secrets)
+.cursor/rules/
