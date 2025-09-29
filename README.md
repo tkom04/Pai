@@ -59,6 +59,12 @@ All endpoints require the `x-api-key` header except `/healthz`.
 - `POST /create_task` - Create a new task
 - `POST /create_event` - Create a calendar event
 - `POST /ha_service_call` - Call Home Assistant service
+ - `GET /groceries` - List grocery items
+ - `PATCH /groceries/{id}` - Update grocery item status
+ - `GET /tasks` - List tasks
+ - `PATCH /tasks/{id}` - Update task status
+ - `GET /events` - List events
+ - `GET /ha_entities` - List Home Assistant entities
 
 ### Example Usage
 
@@ -75,6 +81,23 @@ curl -X POST -H "x-api-key: your-api-key" -H "Content-Type: application/json" \
 curl -X POST -H "x-api-key: your-api-key" -H "Content-Type: application/json" \
   -d '{"title":"Dentist","start":"2025-02-01T16:00:00+01:00","end":"2025-02-01T16:30:00+01:00"}' \
   http://localhost:8080/create_event
+```
+
+## AI Streaming (SSE)
+
+- `POST /ai/respond` with body `{"prompt":"add milk to groceries"}`
+- Optional: `history` array and `mode` of `tools+chat` or `chat-only`
+- SSE events:
+  - `{"type":"text.delta","content":"..."}`
+  - `{"type":"tool.status","name":"...","state":"started|finished"}`
+  - `{"type":"done"}`
+
+Example cURL:
+
+```bash
+curl -N -H "Content-Type: application/json" -H "x-api-key: $APP_API_KEY" \
+  -X POST http://localhost:8080/ai/respond \
+  -d '{"prompt":"add milk to groceries"}'
 ```
 
 ## Architecture

@@ -1,6 +1,6 @@
 """Pydantic models for request/response schemas."""
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
 
@@ -47,6 +47,15 @@ class AddToGroceriesResponse(BaseModel):
     item: Dict[str, Any]
 
 
+# Status enums and update models
+GroceryStatus = Literal["Needed", "Added", "Ordered"]
+
+
+class UpdateGroceryStatusRequest(BaseModel):
+    """Request model for updating grocery item status."""
+    status: GroceryStatus
+
+
 class CreateTaskRequest(BaseModel):
     """Request model for creating tasks."""
     title: str
@@ -59,6 +68,14 @@ class CreateTaskResponse(BaseModel):
     """Response model for creating tasks."""
     ok: bool
     notion_page_id: str
+
+
+TaskStatus = Literal["Not Started", "In Progress", "Done"]
+
+
+class UpdateTaskStatusRequest(BaseModel):
+    """Request model for updating task status."""
+    status: TaskStatus
 
 
 class CreateEventRequest(BaseModel):

@@ -2,6 +2,8 @@
 import os
 from typing import Optional
 from fastapi import HTTPException, Header
+from pydantic_settings import BaseSettings
+from openai import OpenAI
 import httpx
 from notion_client import Client as NotionClient
 
@@ -119,3 +121,22 @@ class HomeAssistantClient:
 notion_service = NotionService()
 google_calendar_client = GoogleCalendarClient()
 ha_client = HomeAssistantClient()
+
+
+class Settings(BaseSettings):
+    """Application settings (loaded from env)."""
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL: str = "gpt-4.1-mini"
+    OPENAI_REQUEST_TIMEOUT_S: int = 60
+    AI_STREAMING_ENABLED: bool = True
+
+
+settings = Settings()  # loaded once
+
+
+def get_openai_client() -> OpenAI:
+    """Provide configured OpenAI client."""
+    api_key = settings.OPENAI_API_KEY
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
+    return OpenAI(api_key=api_key)

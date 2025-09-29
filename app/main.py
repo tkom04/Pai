@@ -2,15 +2,17 @@
 import time
 import uuid
 from datetime import datetime
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Path, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .deps import get_api_key
+from .deps import get_api_key, settings
 from .models import (
     BudgetScanRequest, BudgetScanResponse,
     AddToGroceriesRequest, AddToGroceriesResponse,
+    UpdateGroceryStatusRequest,
     CreateTaskRequest, CreateTaskResponse,
+    UpdateTaskStatusRequest,
     CreateEventRequest, CreateEventResponse,
     HAServiceCallRequest, HAServiceCallResponse,
     ErrorResponse
@@ -21,6 +23,7 @@ from .services.tasks import tasks_service
 from .services.calendar import calendar_service
 from .services.ha import ha_service
 from .util.logging import logger
+from .ai.router import router as ai_router
 from .util.time import now
 
 app = FastAPI(
@@ -34,11 +37,12 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: Restrict in production
+    allow_origins=["*"],  # Restrict in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(ai_router)
 
 
 @app.middleware("http")
@@ -112,6 +116,31 @@ async def add_to_groceries(request: AddToGroceriesRequest):
         raise HTTPException(status_code=500, detail=f"Add to groceries failed: {str(e)}")
 
 
+@app.get("/groceries", dependencies=[Depends(get_api_key)])
+async def get_groceries():
+    """List grocery items."""
+    try:
+        return {"items": await groceries_service.get_items()}
+    except Exception as e:
+        logger.error(f"Get groceries failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Get groceries failed: {str(e)}")
+
+
+@app.patch("/groceries/{item_id}", dependencies=[Depends(get_api_key)])
+async def update_grocery_status(item_id: str = Path(..., description="Grocery item ID"), request: UpdateGroceryStatusRequest = ...):
+    """Update grocery item status."""
+    try:
+        updated = await groceries_service.update_item_status(item_id, request.status)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Grocery item not found")
+        return {"ok": True, "id": item_id, "status": request.status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update grocery status failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Update grocery status failed: {str(e)}")
+
+
 @app.post("/create_task", response_model=CreateTaskResponse, dependencies=[Depends(get_api_key)])
 async def create_task(request: CreateTaskRequest):
     """Create a new task."""
@@ -120,6 +149,31 @@ async def create_task(request: CreateTaskRequest):
     except Exception as e:
         logger.error(f"Create task failed: {e}")
         raise HTTPException(status_code=500, detail=f"Create task failed: {str(e)}")
+
+
+@app.get("/tasks", dependencies=[Depends(get_api_key)])
+async def get_tasks():
+    """List tasks."""
+    try:
+        return {"tasks": await tasks_service.get_tasks()}
+    except Exception as e:
+        logger.error(f"Get tasks failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Get tasks failed: {str(e)}")
+
+
+@app.patch("/tasks/{task_id}", dependencies=[Depends(get_api_key)])
+async def update_task_status(task_id: str = Path(..., description="Task ID"), request: UpdateTaskStatusRequest = ...):
+    """Update task status."""
+    try:
+        updated = await tasks_service.update_task_status(task_id, request.status)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return {"ok": True, "id": task_id, "status": request.status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update task status failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Update task status failed: {str(e)}")
 
 
 @app.post("/create_event", response_model=CreateEventResponse, dependencies=[Depends(get_api_key)])
@@ -132,6 +186,16 @@ async def create_event(request: CreateEventRequest):
         raise HTTPException(status_code=500, detail=f"Create event failed: {str(e)}")
 
 
+@app.get("/events", dependencies=[Depends(get_api_key)])
+async def get_events(start: Optional[datetime] = Query(None), end: Optional[datetime] = Query(None)):
+    """List events, optionally filtered by date range."""
+    try:
+        return {"events": await calendar_service.get_events(start_date=start, end_date=end)}
+    except Exception as e:
+        logger.error(f"Get events failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Get events failed: {str(e)}")
+
+
 @app.post("/ha_service_call", response_model=HAServiceCallResponse, dependencies=[Depends(get_api_key)])
 async def ha_service_call(request: HAServiceCallRequest):
     """Call a Home Assistant service."""
@@ -140,6 +204,17 @@ async def ha_service_call(request: HAServiceCallRequest):
     except Exception as e:
         logger.error(f"HA service call failed: {e}")
         raise HTTPException(status_code=500, detail=f"HA service call failed: {str(e)}")
+
+
+@app.get("/ha_entities", dependencies=[Depends(get_api_key)])
+async def ha_entities(domain: Optional[str] = Query(None)):
+    """List HA entities (optional filter by domain)."""
+    try:
+        entities = await ha_service.get_entities(domain=domain)  # type: ignore[attr-defined]
+        return {"entities": entities}
+    except Exception as e:
+        logger.error(f"Get HA entities failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Get HA entities failed: {str(e)}")
 
 
 if __name__ == "__main__":
