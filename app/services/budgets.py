@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 from datetime import datetime
 
 from ..models import BudgetScanRequest, BudgetScanResponse, CategorySummary
-from ..deps import notion_client
+from ..deps import notion_service
 from ..util.logging import logger
 
 

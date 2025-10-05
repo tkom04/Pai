@@ -1,6 +1,6 @@
 """Dependencies and client configurations for PAI."""
 import os
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from fastapi import HTTPException, Header
 from pydantic_settings import BaseSettings
 from openai import OpenAI
@@ -21,16 +21,136 @@ def get_api_key(x_api_key: Optional[str] = Header(None)) -> str:
 
 
 class NotionService:
-    """Notion API service."""
+    """Enhanced Notion API service with full CRUD operations."""
     def __init__(self):
         self.api_key = os.getenv("NOTION_API_KEY")
-        self.client = NotionClient(auth=self.api_key)
-        self.budgets_db_id = os.getenv("NOTION_DB_BUDGETS", "276d1d46-0bbb-81a5-8b20-ca7f1aed6c0f")  # All Expenses
-        self.tasks_db_id = os.getenv("NOTION_DB_TASKS", "276d1d46-0bbb-800b-a1c1-d7a0aba4426f")  # Habit Tracker (repurpose)
-        self.groceries_db_id = os.getenv("NOTION_DB_GROCERIES", "276d1d46-0bbb-800b-a1c1-d7a0aba4426f")  # Habit Tracker (repurpose)
 
+        # Only initialize client if API key is present
+        if self.api_key:
+            self.client = NotionClient(auth=self.api_key)
+        else:
+            self.client = None
+            print("WARNING: NOTION_API_KEY not configured. Notion features will not work.")
+
+        self.budgets_db_id = os.getenv("NOTION_DB_BUDGETS")
+        self.tasks_db_id = os.getenv("NOTION_DB_TASKS")
+        self.groceries_db_id = os.getenv("NOTION_DB_GROCERIES")
+
+        # Cache for database schemas
+        self._db_schema_cache: Dict[str, Any] = {}
+
+    async def get_database_schema(self, database_id: str) -> dict:
+        """Retrieve and cache database schema."""
+        if not self.client:
+            raise HTTPException(status_code=503, detail="Notion API not configured. Set NOTION_API_KEY in .env file.")
+
+        if database_id in self._db_schema_cache:
+            return self._db_schema_cache[database_id]
+
+        try:
+            database = self.client.databases.retrieve(database_id=database_id)
+            self._db_schema_cache[database_id] = database
+            return database
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve database schema: {str(e)}")
+
+    async def query_database(
+        self,
+        database_id: str,
+        filter_conditions: Optional[dict] = None,
+        sorts: Optional[List[dict]] = None,
+        page_size: int = 100
+    ) -> List[dict]:
+        """Query a Notion database with filters and sorting."""
+        if not self.client:
+            raise HTTPException(status_code=503, detail="Notion API not configured. Set NOTION_API_KEY in .env file.")
+
+        try:
+            query_params = {"database_id": database_id, "page_size": page_size}
+
+            if filter_conditions:
+                query_params["filter"] = filter_conditions
+            if sorts:
+                query_params["sorts"] = sorts
+
+            results = []
+            response = self.client.databases.query(**query_params)
+            results.extend(response.get("results", []))
+
+            # Handle pagination
+            while response.get("has_more"):
+                query_params["start_cursor"] = response["next_cursor"]
+                response = self.client.databases.query(**query_params)
+                results.extend(response.get("results", []))
+
+            return results
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to query database: {str(e)}")
+
+    async def create_page(self, database_id: str, properties: dict, content: Optional[List[dict]] = None) -> dict:
+        """Create a page in any Notion database with validation."""
+        if not self.client:
+            raise HTTPException(status_code=503, detail="Notion API not configured. Set NOTION_API_KEY in .env file.")
+
+        try:
+            page_data = {
+                "parent": {"database_id": database_id},
+                "properties": properties
+            }
+
+            if content:
+                page_data["children"] = content
+
+            response = self.client.pages.create(**page_data)
+            return {"id": response["id"], "url": response["url"], "properties": response.get("properties", {})}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to create page: {str(e)}")
+
+    async def update_page(self, page_id: str, properties: dict) -> dict:
+        """Update a Notion page's properties."""
+        if not self.client:
+            raise HTTPException(status_code=503, detail="Notion API not configured. Set NOTION_API_KEY in .env file.")
+
+        try:
+            response = self.client.pages.update(
+                page_id=page_id,
+                properties=properties
+            )
+            return {"id": response["id"], "url": response["url"], "properties": response.get("properties", {})}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to update page: {str(e)}")
+
+    async def get_page(self, page_id: str) -> dict:
+        """Retrieve a Notion page by ID."""
+        if not self.client:
+            raise HTTPException(status_code=503, detail="Notion API not configured. Set NOTION_API_KEY in .env file.")
+
+        try:
+            response = self.client.pages.retrieve(page_id=page_id)
+            return response
+        except Exception as e:
+            raise HTTPException(status_code=404, detail=f"Page not found: {str(e)}")
+
+    async def delete_page(self, page_id: str) -> dict:
+        """Archive (delete) a Notion page."""
+        if not self.client:
+            raise HTTPException(status_code=503, detail="Notion API not configured. Set NOTION_API_KEY in .env file.")
+
+        try:
+            response = self.client.pages.update(
+                page_id=page_id,
+                archived=True
+            )
+            return {"id": response["id"], "archived": True}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to archive page: {str(e)}")
+
+    # Legacy methods for backward compatibility
     async def create_task_page(self, title: str, due: str, context: str = "Home", priority: str = "Med") -> dict:
         """Create a task page in Notion Tasks database."""
+        if not self.tasks_db_id:
+            return {"id": f"mock-task-{title}", "url": "https://notion.so/mock", "error": "NOTION_DB_TASKS not configured"}
+
         try:
             properties = {
                 "Title": {"title": [{"text": {"content": title}}]},
@@ -39,18 +159,15 @@ class NotionService:
                 "Priority": {"select": {"name": priority}},
                 "Status": {"select": {"name": "Not Started"}}
             }
-
-            response = self.client.pages.create(
-                parent={"database_id": self.tasks_db_id},
-                properties=properties
-            )
-            return {"id": response["id"], "url": response["url"]}
+            return await self.create_page(self.tasks_db_id, properties)
         except Exception as e:
-            # Fallback to mock response if Notion fails
             return {"id": f"mock-task-{title}", "url": "https://notion.so/mock", "error": str(e)}
 
     async def create_grocery_page(self, item: str, qty: int = 1, notes: str = None) -> dict:
         """Create a grocery item page in Notion Groceries database."""
+        if not self.groceries_db_id:
+            return {"id": f"mock-grocery-{item}", "url": "https://notion.so/mock", "error": "NOTION_DB_GROCERIES not configured"}
+
         try:
             properties = {
                 "Item": {"title": [{"text": {"content": item}}]},
@@ -58,18 +175,15 @@ class NotionService:
                 "Notes": {"rich_text": [{"text": {"content": notes or ""}}]},
                 "Status": {"select": {"name": "Needed"}}
             }
-
-            response = self.client.pages.create(
-                parent={"database_id": self.groceries_db_id},
-                properties=properties
-            )
-            return {"id": response["id"], "url": response["url"]}
+            return await self.create_page(self.groceries_db_id, properties)
         except Exception as e:
-            # Fallback to mock response if Notion fails
             return {"id": f"mock-grocery-{item}", "url": "https://notion.so/mock", "error": str(e)}
 
     async def create_budget_page(self, category: str, cap: float, spent: float, month: str) -> dict:
         """Create a budget entry page in Notion Budgets database."""
+        if not self.budgets_db_id:
+            return {"id": f"mock-budget-{category}", "url": "https://notion.so/mock", "error": "NOTION_DB_BUDGETS not configured"}
+
         try:
             delta = cap - spent
             status = "WARN" if spent / cap > 0.8 else "OK"
@@ -82,14 +196,8 @@ class NotionService:
                 "Status": {"select": {"name": status}},
                 "Month": {"date": {"start": month}}
             }
-
-            response = self.client.pages.create(
-                parent={"database_id": self.budgets_db_id},
-                properties=properties
-            )
-            return {"id": response["id"], "url": response["url"]}
+            return await self.create_page(self.budgets_db_id, properties)
         except Exception as e:
-            # Fallback to mock response if Notion fails
             return {"id": f"mock-budget-{category}", "url": "https://notion.so/mock", "error": str(e)}
 
 
@@ -126,7 +234,7 @@ ha_client = HomeAssistantClient()
 class Settings(BaseSettings):
     """Application settings (loaded from env)."""
     OPENAI_API_KEY: Optional[str] = None
-    OPENAI_MODEL: str = "gpt-4.1-mini"
+    OPENAI_MODEL: str = "gpt-4o-mini"  # Valid as of Oct 2025
     OPENAI_REQUEST_TIMEOUT_S: int = 60
     AI_STREAMING_ENABLED: bool = True
 

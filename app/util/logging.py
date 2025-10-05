@@ -3,7 +3,7 @@ import logging
 import json
 import time
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import uuid
 
 
@@ -15,13 +15,20 @@ class StructuredFormatter(logging.Formatter):
             "level": record.levelname,
             "ts": datetime.utcnow().isoformat() + "Z",
             "req_id": getattr(record, "req_id", None),
+            "correlation_id": getattr(record, "correlation_id", None),
             "route": getattr(record, "route", None),
             "elapsed_ms": getattr(record, "elapsed_ms", None),
+            "tool_name": getattr(record, "tool_name", None),
+            "tool_args": getattr(record, "tool_args", None),
+            "tool_result": getattr(record, "tool_result", None),
             "message": record.getMessage(),
             "module": record.module,
             "function": record.funcName,
             "line": record.lineno
         }
+
+        # Remove None values for cleaner logs
+        log_entry = {k: v for k, v in log_entry.items() if v is not None}
 
         # Add exception info if present
         if record.exc_info:
@@ -49,6 +56,9 @@ def setup_logging() -> logging.Logger:
 
 def mask_secrets(data: Dict[str, Any]) -> Dict[str, Any]:
     """Mask sensitive data in logs."""
+    if not isinstance(data, dict):
+        return data
+
     masked_data = data.copy()
     sensitive_keys = ["api_key", "token", "password", "secret", "credentials"]
 
@@ -59,6 +69,11 @@ def mask_secrets(data: Dict[str, Any]) -> Dict[str, Any]:
             masked_data[key] = mask_secrets(value)
 
     return masked_data
+
+
+def generate_correlation_id() -> str:
+    """Generate a unique correlation ID for tracking requests."""
+    return str(uuid.uuid4())
 
 
 # Global logger instance

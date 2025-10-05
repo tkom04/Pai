@@ -2,9 +2,14 @@
 import time
 import uuid
 from datetime import datetime
+from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, Path, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from .deps import get_api_key, settings
 from .models import (
@@ -24,7 +29,11 @@ from .services.calendar import calendar_service
 from .services.ha import ha_service
 from .util.logging import logger
 from .ai.router import router as ai_router
+from .ai.tools import get_tool_names, tool_schemas
+from .ai.tool_runtime import TOOL_DISPATCH
 from .util.time import now
+from .auth.google_oauth import oauth_manager
+from fastapi.responses import RedirectResponse
 
 app = FastAPI(
     title="Personal AI Assistant",
@@ -94,6 +103,66 @@ async def ping():
 async def healthz():
     """Health check endpoint without authentication (for Cloudflare Tunnel)."""
     return {"status": "ok", "time": now().isoformat()}
+
+
+@app.get("/ai/tools/health", dependencies=[Depends(get_api_key)])
+async def ai_tools_health():
+    """
+    Health check endpoint for AI tools system.
+    Tests tool schema generation, dispatcher availability, and provides diagnostic info.
+    """
+    try:
+        # Get tool schemas
+        schemas = tool_schemas()
+        schema_names = list(schemas.keys())
+
+        # Get dispatcher tools
+        dispatcher_names = list(TOOL_DISPATCH.keys())
+
+        # Check for mismatches
+        schema_only = set(schema_names) - set(dispatcher_names)
+        dispatcher_only = set(dispatcher_names) - set(schema_names)
+
+        # Test a simple tool (dry run)
+        test_result = None
+        try:
+            # Try to validate that add_to_groceries exists and is callable
+            if "add_to_groceries" in TOOL_DISPATCH:
+                test_result = "add_to_groceries function is accessible"
+        except Exception as e:
+            test_result = f"Error accessing tool: {str(e)}"
+
+        health_status = {
+            "status": "healthy" if not (schema_only or dispatcher_only) else "warning",
+            "time": now().isoformat(),
+            "tools": {
+                "total_schemas": len(schema_names),
+                "total_dispatchers": len(dispatcher_names),
+                "schema_names": schema_names,
+                "dispatcher_names": dispatcher_names,
+                "schema_only": list(schema_only) if schema_only else [],
+                "dispatcher_only": list(dispatcher_only) if dispatcher_only else [],
+            },
+            "test": test_result,
+            "openai_model": settings.OPENAI_MODEL,
+            "openai_api_key_configured": bool(settings.OPENAI_API_KEY)
+        }
+
+        if schema_only or dispatcher_only:
+            health_status["warning"] = "Mismatch between schemas and dispatchers"
+
+        return health_status
+
+    except Exception as e:
+        logger.error(f"Tools health check failed: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "unhealthy",
+                "error": str(e),
+                "time": now().isoformat()
+            }
+        )
 
 
 @app.post("/budget_scan", response_model=BudgetScanResponse, dependencies=[Depends(get_api_key)])
@@ -191,6 +260,14 @@ async def get_events(start: Optional[datetime] = Query(None), end: Optional[date
     """List events, optionally filtered by date range."""
     try:
         return {"events": await calendar_service.get_events(start_date=start, end_date=end)}
+    except ValueError as e:
+        # Authentication or calendar access error - return empty list with message
+        logger.warning(f"Calendar not accessible: {e}")
+        return {
+            "events": [],
+            "message": "Google Calendar not connected. Please authenticate to see events.",
+            "authenticated": False
+        }
     except Exception as e:
         logger.error(f"Get events failed: {e}")
         raise HTTPException(status_code=500, detail=f"Get events failed: {str(e)}")
@@ -215,6 +292,67 @@ async def ha_entities(domain: Optional[str] = Query(None)):
     except Exception as e:
         logger.error(f"Get HA entities failed: {e}")
         raise HTTPException(status_code=500, detail=f"Get HA entities failed: {str(e)}")
+
+
+# ==================== Google OAuth Endpoints ====================
+
+@app.get("/auth/google")
+async def google_oauth_init():
+    """Initiate Google OAuth flow."""
+    try:
+        authorization_url = oauth_manager.get_authorization_url()
+        return {"authorization_url": authorization_url}
+    except Exception as e:
+        logger.error(f"Failed to initiate Google OAuth: {e}")
+        raise HTTPException(status_code=500, detail=f"OAuth initialization failed: {str(e)}")
+
+
+@app.get("/auth/google/callback")
+async def google_oauth_callback(code: str = Query(..., description="Authorization code from Google")):
+    """Handle Google OAuth callback."""
+    try:
+        success = oauth_manager.exchange_code_for_token(code)
+        if success:
+            logger.info("Google OAuth completed successfully")
+            return RedirectResponse(url="/?auth=success")
+        else:
+            logger.error("Failed to exchange OAuth code for token")
+            raise HTTPException(status_code=400, detail="Failed to complete authentication")
+    except Exception as e:
+        logger.error(f"OAuth callback error: {e}")
+        raise HTTPException(status_code=500, detail=f"OAuth callback failed: {str(e)}")
+
+
+@app.get("/auth/google/status")
+async def google_oauth_status():
+    """Check Google OAuth authentication status."""
+    try:
+        is_authenticated = oauth_manager.is_authenticated()
+        return {
+            "authenticated": is_authenticated,
+            "service": "Google Calendar"
+        }
+    except Exception as e:
+        logger.error(f"Failed to check OAuth status: {e}")
+        return {
+            "authenticated": False,
+            "error": str(e)
+        }
+
+
+@app.post("/auth/google/revoke")
+async def google_oauth_revoke():
+    """Revoke Google OAuth token."""
+    try:
+        success = oauth_manager.revoke_token()
+        if success:
+            logger.info("Google OAuth token revoked")
+            return {"ok": True, "message": "Authentication revoked"}
+        else:
+            raise HTTPException(status_code=400, detail="No active authentication to revoke")
+    except Exception as e:
+        logger.error(f"Failed to revoke OAuth token: {e}")
+        raise HTTPException(status_code=500, detail=f"Token revocation failed: {str(e)}")
 
 
 if __name__ == "__main__":

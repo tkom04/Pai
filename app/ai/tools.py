@@ -4,14 +4,28 @@ from __future__ import annotations
 from typing import Dict, Any
 
 
+def get_tool_names() -> list[str]:
+    """Return list of available tool names."""
+    return [
+        "budget_scan",
+        "add_to_groceries",
+        "update_grocery_status",
+        "create_task",
+        "update_task_status",
+        "create_event",
+        "ha_service_call",
+    ]
+
+
 def tool_schemas() -> Dict[str, Dict[str, Any]]:
-    """Return OpenAI tool schemas for Responses API."""
+    """Return OpenAI tool schemas for Chat Completions API."""
     return {
         "budget_scan": {
             "type": "function",
-            "name": "budget_scan",
-            "description": "Scan budget summarizing categories and buffer for a date period.",
-            "parameters": {
+            "function": {
+                "name": "budget_scan",
+                "description": "Scan budget summarizing categories and buffer for a date period.",
+                "parameters": {
                 "type": "object",
                 "properties": {
                     "period": {
@@ -31,13 +45,15 @@ def tool_schemas() -> Dict[str, Dict[str, Any]]:
                 },
                 "required": ["period"],
                 "additionalProperties": False,
-            },
+                },
+            }
         },
         "add_to_groceries": {
             "type": "function",
-            "name": "add_to_groceries",
-            "description": "Add an item to the groceries list.",
-            "parameters": {
+            "function": {
+                "name": "add_to_groceries",
+                "description": "Add an item to the groceries list.",
+                "parameters": {
                 "type": "object",
                 "properties": {
                     "item": {"type": "string"},
@@ -46,13 +62,15 @@ def tool_schemas() -> Dict[str, Dict[str, Any]]:
                 },
                 "required": ["item"],
                 "additionalProperties": False,
-            },
+                },
+            }
         },
         "update_grocery_status": {
             "type": "function",
-            "name": "update_grocery_status",
-            "description": "Update a grocery item status.",
-            "parameters": {
+            "function": {
+                "name": "update_grocery_status",
+                "description": "Update a grocery item status.",
+                "parameters": {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string"},
@@ -60,13 +78,15 @@ def tool_schemas() -> Dict[str, Dict[str, Any]]:
                 },
                 "required": ["id", "status"],
                 "additionalProperties": False,
-            },
+                },
+            }
         },
         "create_task": {
             "type": "function",
-            "name": "create_task",
-            "description": "Create a task in the tasks list.",
-            "parameters": {
+            "function": {
+                "name": "create_task",
+                "description": "Create a task in the tasks list.",
+                "parameters": {
                 "type": "object",
                 "properties": {
                     "title": {"type": "string"},
@@ -76,13 +96,15 @@ def tool_schemas() -> Dict[str, Dict[str, Any]]:
                 },
                 "required": ["title", "due"],
                 "additionalProperties": False,
-            },
+                },
+            }
         },
         "update_task_status": {
             "type": "function",
-            "name": "update_task_status",
-            "description": "Update a task status.",
-            "parameters": {
+            "function": {
+                "name": "update_task_status",
+                "description": "Update a task status.",
+                "parameters": {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string"},
@@ -90,13 +112,15 @@ def tool_schemas() -> Dict[str, Dict[str, Any]]:
                 },
                 "required": ["id", "status"],
                 "additionalProperties": False,
-            },
+                },
+            }
         },
         "create_event": {
             "type": "function",
-            "name": "create_event",
-            "description": "Create a calendar event.",
-            "parameters": {
+            "function": {
+                "name": "create_event",
+                "description": "Create a calendar event.",
+                "parameters": {
                 "type": "object",
                 "properties": {
                     "title": {"type": "string"},
@@ -106,13 +130,15 @@ def tool_schemas() -> Dict[str, Dict[str, Any]]:
                 },
                 "required": ["title", "start", "end"],
                 "additionalProperties": False,
-            },
+                },
+            }
         },
         "ha_service_call": {
             "type": "function",
-            "name": "ha_service_call",
-            "description": "Call a Home Assistant service.",
-            "parameters": {
+            "function": {
+                "name": "ha_service_call",
+                "description": "Call a Home Assistant service.",
+                "parameters": {
                 "type": "object",
                 "properties": {
                     "domain": {"type": "string"},
@@ -122,7 +148,8 @@ def tool_schemas() -> Dict[str, Dict[str, Any]]:
                 },
                 "required": ["domain", "service"],
                 "additionalProperties": False,
-            },
+                },
+            }
         },
     }
 

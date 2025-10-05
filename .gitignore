@@ -77,6 +77,11 @@ credentials.json
 token.json
 *.token
 
+# Specific sensitive files found
+.env7
+google_token.json
+exchange_google_token.py
+
 # Local development
 .local/
 .cache/

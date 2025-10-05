@@ -1,0 +1,22 @@
+{
+	"folders": [
+		{
+			"path": "../../.."
+		}
+	],
+	"settings": {
+		"cursor.general.globalCursorIgnoreList": [
+			"**/credentials.json",
+			"**/credentials.*.json",
+			"**/*.key",
+			"**/*.pem",
+			"**/*.pfx",
+			"**/*.p12",
+			"**/*.crt",
+			"**/*.cer",
+			"**/id_rsa",
+			"**/id_dsa",
+			"**/.ssh/id_*"
+		]
+	}
+}
