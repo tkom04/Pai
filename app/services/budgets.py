@@ -1,12 +1,14 @@
-"""Budget service for CSV parsing and Notion integration."""
+"""Budget service for CSV parsing, Open Banking integration, and Notion integration."""
 import csv
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from ..models import BudgetScanRequest, BudgetScanResponse, CategorySummary
 from ..deps import notion_service
 from ..util.logging import logger
+from ..services.open_banking import open_banking_service
+from ..auth.open_banking import open_banking_oauth_manager
 
 
 class BudgetService:
@@ -21,15 +23,30 @@ class BudgetService:
             "Shopping": 100.0
         }
 
-    async def scan_budget(self, request: BudgetScanRequest) -> BudgetScanResponse:
+    async def scan_budget(self, request: BudgetScanRequest, user_id: Optional[str] = None) -> BudgetScanResponse:
         """Scan budget for given period."""
         logger.info(f"Budget scan requested for period {request.period.from_date} to {request.period.to_date}")
 
-        if request.source == "csv":
+        # Priority: Open Banking > CSV > Sample Data
+        transactions = []
+
+        if request.source == "open_banking" and user_id:
+            try:
+                transactions = await self._fetch_open_banking_transactions(
+                    user_id=user_id,
+                    from_date=request.period.from_date,
+                    to_date=request.period.to_date
+                )
+                logger.info(f"Fetched {len(transactions)} transactions from Open Banking")
+            except Exception as e:
+                logger.error(f"Failed to fetch Open Banking transactions: {e}", exc_info=True)
+                # Fall back to CSV
+                transactions = await self._parse_csv(request.path or "data/sample_transactions.csv")
+        elif request.source == "csv":
             transactions = await self._parse_csv(request.path or "data/sample_transactions.csv")
         else:
-            # TODO: Implement Notion integration in Phase 3
-            transactions = []
+            # Fallback to sample data
+            transactions = self._get_sample_transactions()
 
         categories = await self._calculate_category_totals(transactions, request.period)
         buffer_remaining = sum(cat.delta for cat in categories)
@@ -39,6 +56,118 @@ class BudgetService:
             categories=categories,
             buffer_remaining=buffer_remaining
         )
+
+    async def _fetch_open_banking_transactions(self, user_id: str, from_date: str, to_date: str) -> List[Dict[str, Any]]:
+        """
+        Fetch transactions from Open Banking in real-time.
+
+        Returns transactions in a normalized format compatible with CSV parser.
+        """
+        try:
+            # Check if user is authenticated
+            is_authenticated = await open_banking_oauth_manager.is_authenticated(user_id)
+            if not is_authenticated:
+                raise ValueError("User not authenticated with Open Banking")
+
+            # Get user's bank accounts (real-time from TrueLayer API)
+            accounts = await open_banking_service.get_bank_accounts(user_id)
+            if not accounts:
+                logger.warning(f"No bank accounts found for user {user_id}")
+                return []
+
+            # Fetch transactions from all accounts
+            all_transactions = []
+            for account in accounts:
+                try:
+                    transactions = await open_banking_service.get_transactions(
+                        user_id=user_id,
+                        account_id=account.provider_account_id,
+                        from_date=from_date,
+                        to_date=to_date
+                    )
+
+                    # Normalize to CSV-compatible format
+                    for tx in transactions:
+                        # Only include DEBIT transactions (spending)
+                        if tx.transaction_type == "DEBIT":
+                            normalized_tx = {
+                                "Date": tx.timestamp.strftime("%Y-%m-%d"),
+                                "Merchant": tx.merchant_name or tx.description,
+                                "Amount": abs(tx.amount),  # Convert to positive for spending
+                                "Category": self._categorize_transaction(tx)
+                            }
+                            all_transactions.append(normalized_tx)
+                except Exception as e:
+                    logger.error(f"Failed to fetch transactions for account {account.provider_account_id}: {e}")
+                    continue
+
+            logger.info(f"Fetched {len(all_transactions)} DEBIT transactions from {len(accounts)} accounts")
+            return all_transactions
+        except Exception as e:
+            logger.error(f"Error fetching Open Banking transactions: {e}", exc_info=True)
+            raise
+
+    def _categorize_transaction(self, transaction) -> str:
+        """
+        Categorize transaction based on merchant name, description, and TrueLayer classification.
+
+        Categories: Food, Fun, Transport, Utilities, Shopping, Other
+        """
+        # Use TrueLayer's classification if available
+        if transaction.transaction_classification:
+            classifications = transaction.transaction_classification
+            for classification in classifications:
+                classification_lower = classification.lower()
+                if any(keyword in classification_lower for keyword in ["groceries", "supermarkets", "restaurants", "food"]):
+                    return "Food"
+                elif any(keyword in classification_lower for keyword in ["entertainment", "leisure", "recreation"]):
+                    return "Fun"
+                elif any(keyword in classification_lower for keyword in ["transport", "travel", "fuel", "petrol"]):
+                    return "Transport"
+                elif any(keyword in classification_lower for keyword in ["utilities", "bills", "electric", "gas", "water"]):
+                    return "Utilities"
+                elif any(keyword in classification_lower for keyword in ["shopping", "retail", "general"]):
+                    return "Shopping"
+
+        # Fallback: keyword-based categorization
+        text = f"{transaction.merchant_name or ''} {transaction.description}".lower()
+
+        # Food keywords
+        if any(keyword in text for keyword in ["tesco", "sainsbury", "asda", "waitrose", "morrisons", "aldi", "lidl",
+                                                 "co-op", "marks", "restaurant", "cafe", "pizza", "mcdonald",
+                                                 "kfc", "subway", "starbucks", "costa", "pret"]):
+            return "Food"
+
+        # Fun keywords
+        elif any(keyword in text for keyword in ["cinema", "netflix", "spotify", "steam", "game", "vue", "odeon",
+                                                   "amazon prime", "disney", "gym", "fitness"]):
+            return "Fun"
+
+        # Transport keywords
+        elif any(keyword in text for keyword in ["shell", "bp", "esso", "texaco", "tfl", "uber", "train", "bus",
+                                                   "petrol", "fuel", "parking", "national rail"]):
+            return "Transport"
+
+        # Utilities keywords
+        elif any(keyword in text for keyword in ["british gas", "edf", "eon", "octopus energy", "thames water",
+                                                   "bt", "virgin", "sky", "vodafone", "ee", "o2", "three"]):
+            return "Utilities"
+
+        # Rent keywords
+        elif any(keyword in text for keyword in ["rent", "rnd estates", "landlord", "letting", "estate"]):
+            return "Utilities"  # Rent counts as utilities for budgeting
+
+        # Debt/loan/savings keywords (exclude from regular spending)
+        elif any(keyword in text for keyword in ["debt", "loan repayment", "savings", "transfer to savings"]):
+            return "Other"  # These shouldn't count against spending budgets
+
+        # Shopping keywords
+        elif any(keyword in text for keyword in ["amazon", "ebay", "argos", "john lewis", "next", "h&m", "zara",
+                                                   "primark", "boots", "superdrug"]):
+            return "Shopping"
+
+        # Default to Other
+        return "Other"
 
     async def _parse_csv(self, file_path: str) -> List[Dict[str, Any]]:
         """Parse CSV file for transactions."""

@@ -36,12 +36,14 @@ ENV/
 # IDE
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Logs
 *.log
@@ -52,11 +54,19 @@ logs/
 *.sqlite
 *.sqlite3
 
-# Node.js (for any JS tooling)
+# Node.js (for PWA and website)
+pwa/node_modules/
+website/node_modules/
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Next.js
+pwa/.next/
+website/.next/
+.next/
+out/
 
 # Temporary files
 *.tmp
@@ -93,3 +103,10 @@ htmlcov/
 *.model
 *.pkl
 *.joblib
+
+# Supabase
+.supabase/
+
+# Debug files
+debug_*.py
+test_endpoint.py

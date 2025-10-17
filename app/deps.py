@@ -1,11 +1,13 @@
 """Dependencies and client configurations for PAI."""
 import os
+import jwt
 from typing import Optional, Dict, Any, List
 from fastapi import HTTPException, Header
 from pydantic_settings import BaseSettings
 from openai import OpenAI
 import httpx
 from notion_client import Client as NotionClient
+from supabase import create_client, Client as SupabaseClient
 
 
 def get_api_key(x_api_key: Optional[str] = Header(None)) -> str:
@@ -213,22 +215,13 @@ class GoogleCalendarClient:
         return {"id": "placeholder", "event": event_data}
 
 
-class HomeAssistantClient:
-    """Home Assistant REST API client (placeholder for Phase 3)."""
-    def __init__(self):
-        self.base_url = os.getenv("HA_BASE_URL")
-        self.token = os.getenv("HA_TOKEN")
-
-    async def call_service(self, domain: str, service: str, entity_id: Optional[str] = None, data: Optional[dict] = None) -> dict:
-        """Call a Home Assistant service."""
-        # TODO: Implement in Phase 3
-        return {"domain": domain, "service": service, "entity_id": entity_id, "data": data}
-
+# Import Open Banking services
+from .services.open_banking import open_banking_service
+from .auth.open_banking import open_banking_oauth_manager
 
 # Global client instances
 notion_service = NotionService()
 google_calendar_client = GoogleCalendarClient()
-ha_client = HomeAssistantClient()
 
 
 class Settings(BaseSettings):
@@ -248,3 +241,63 @@ def get_openai_client() -> OpenAI:
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
     return OpenAI(api_key=api_key)
+
+
+# ==================== Supabase Authentication ====================
+
+def get_supabase_client() -> SupabaseClient:
+    """Get Supabase client for database operations."""
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+    if not supabase_url or not supabase_key:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+
+    return create_client(supabase_url, supabase_key)
+
+
+async def get_current_user(authorization: Optional[str] = Header(None)) -> str:
+    """
+    Extract user_id from Supabase JWT token.
+    Expects Authorization header: "Bearer <token>"
+    """
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization header missing")
+
+    # Extract token from "Bearer <token>"
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header format")
+
+    token = authorization.replace("Bearer ", "")
+
+    try:
+        # Get Supabase JWT secret
+        jwt_secret = os.getenv("SUPABASE_JWT_SECRET")
+        if not jwt_secret:
+            # Fallback: verify with Supabase client
+            supabase = get_supabase_client()
+            user = supabase.auth.get_user(token)
+            if user and user.user:
+                return user.user.id
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        # Decode JWT token
+        payload = jwt.decode(
+            token,
+            jwt_secret,
+            algorithms=["HS256"],
+            audience="authenticated"
+        )
+
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+
+        return user_id
+
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")

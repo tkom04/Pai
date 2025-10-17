@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Orbit — Your tasks revolve around you</title>
+  <meta name="description" content="Shopping lists, todos, Open Banking, and Google Calendar — orchestrated by an AI that actually assists you." />
+
+  <!-- Tailwind (CDN for quick drop‑in). Replace with a compiled build for production. -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: '#0B0B10',
+            midnight: '#0B0B10',
+            snow: '#FFFFFF',
+            violet: '#6E44FF',
+          },
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', 'Segoe UI', 'Helvetica', 'Arial', 'Apple Color Emoji', 'Segoe UI Emoji'],
+          },
+          boxShadow: {
+            glow: '0 0 0 1px rgba(110,68,255,.08), 0 10px 40px rgba(110,68,255,.25)'
+          },
+          keyframes: {
+            float: { '0%,100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-8px)' } },
+            pulseRing: { '0%': { transform:'scale(.9)', opacity:.7 }, '80%,100%': { transform:'scale(1.3)', opacity:0 } },
+            spinSlow: { '0%': { transform: 'rotate(0deg)' }, '100%': { transform: 'rotate(360deg)' } },
+            shimmer: { '0%': { backgroundPosition:'-200% 0' }, '100%': { backgroundPosition:'200% 0' } }
+          },
+          animation: {
+            float: 'float 8s ease-in-out infinite',
+            pulseRing: 'pulseRing 2.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite',
+            spinSlow: 'spinSlow 32s linear infinite',
+            shimmer: 'shimmer 2.5s linear infinite'
+          },
+          backgroundImage: {
+            grid: 'radial-gradient(transparent 1px, rgba(255,255,255,0.04) 1px)',
+            noise: "url('data:image/svg+xml;utf8,\
+              <svg xmlns=\'http://www.w3.org/2000/svg\' width=\'1200\' height=\'1200\'>\
+                <filter id=\'n\'>\
+                  <feTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' stitchTiles=\'stitch\'/>\
+                </filter>\
+                <rect width=\'100%\' height=\'100%\' filter=\'url(%23n)\' opacity=\'0.03\'/>\
+              </svg>')",
+          },
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    /* Subtle starfield */
+    .starfield::before, .starfield::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(2px 2px at 20% 30%, rgba(255,255,255,.25) 50%, transparent 51%),
+                  radial-gradient(1.5px 1.5px at 80% 20%, rgba(255,255,255,.15) 50%, transparent 51%),
+                  radial-gradient(1.2px 1.2px at 60% 70%, rgba(255,255,255,.2) 50%, transparent 51%),
+                  radial-gradient(1px 1px at 30% 80%, rgba(255,255,255,.15) 50%, transparent 51%);
+      opacity:.12; pointer-events:none;
+    }
+    .starfield::after{ filter: blur(1px); opacity:.07 }
+
+    /* Smooth anchors */
+    html { scroll-behavior: smooth; }
+
+    /* Minimal focus ring */
+    :focus-visible { outline: 2px solid #6E44FF; outline-offset: 2px; border-radius: 10px }
+  </style>
+</head>
+<body class="bg-midnight text-snow font-sans selection:bg-violet/30">
+  <!-- ===== Top Banner (social proof / value prop) ===== -->
+  <div class="relative overflow-hidden">
+    <div class="bg-gradient-to-r from-violet/30 to-transparent text-snow/90 text-xs md:text-sm py-2 text-center">
+      <span class="px-3">Shopping lists • Todos • Open Banking • Google Calendar — all coordinated by a helpful AI.</span>
+    </div>
+  </div>
+
+  <!-- ===== Navigation ===== -->
+  <header class="sticky top-0 z-50 backdrop-blur bg-midnight/70 border-b border-white/5">
+    <div class="max-w-7xl mx-auto px-4 md:px-6">
+      <div class="h-16 flex items-center justify-between gap-4">
+        <a href="#top" class="inline-flex items-center gap-2">
+          <svg width="26" height="26" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" class="drop-shadow"><circle cx="32" cy="32" r="10" fill="url(#g)"/><g filter="url(#f)"><circle cx="32" cy="32" r="2.5" fill="white"/></g><g class="animate-spinSlow origin-center"><ellipse cx="32" cy="32" rx="22" ry="10" stroke="#6E44FF" stroke-opacity=".35" stroke-width="2"/></g><defs><linearGradient id="g" x1="22" y1="22" x2="42" y2="42" gradientUnits="userSpaceOnUse"><stop stop-color="#6E44FF"/><stop offset="1" stop-color="#B39CFF"/></linearGradient><filter id="f" x="26" y="26" width="12" height="12"><feGaussianBlur stdDeviation="1.2"/></filter></defs></svg>
+          <span class="font-bold tracking-tight text-lg">Orbit</span>
+        </a>
+        <nav class="hidden md:flex items-center gap-6 text-sm text-white/80">
+          <a href="#how" class="hover:text-white">How it works</a>
+          <a href="#benefits" class="hover:text-white">Why Orbit</a>
+          <a href="#integrations" class="hover:text-white">Integrations</a>
+          <a href="#faq" class="hover:text-white">FAQ</a>
+        </nav>
+        <a href="#waitlist" class="ml-auto md:ml-0 inline-flex items-center justify-center px-4 py-2 rounded-xl bg-violet text-white font-semibold shadow-glow hover:scale-[1.02] transition">
+          Get early access
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== Hero ===== -->
+  <section id="top" class="relative overflow-hidden">
+    <div class="absolute inset-0 starfield"></div>
+    <div class="absolute inset-0 bg-noise mix-blend-soft-light pointer-events-none"></div>
+    <div class="absolute -z-10 inset-0 bg-[radial-gradient(60%_50%_at_50%_0%,rgba(110,68,255,.16)_0%,transparent_60%)]"></div>
+
+    <div class="max-w-7xl mx-auto px-4 md:px-6 pt-16 md:pt-28 pb-16">
+      <div class="grid md:grid-cols-2 gap-10 items-center">
+        <div>
+          <h1 class="text-4xl md:text-6xl leading-tight font-extrabold tracking-tight">
+            Make life revolve around <span class="bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">you</span>
+          </h1>
+          <p class="mt-4 text-white/80 text-lg md:text-xl max-w-xl">
+            An AI that actually assists <span class="font-semibold">you</span> — not your IQ. It brings together shopping lists, todos, Open Banking, and Google Calendar so the right thing shows up at the right time.
+          </p>
+          <div class="mt-8 flex flex-col sm:flex-row gap-3">
+            <a href="#waitlist" class="inline-flex justify-center items-center px-5 py-3 rounded-xl bg-violet font-semibold shadow-glow hover:scale-[1.02] transition">Join the waitlist</a>
+            <button id="demoBtn" class="inline-flex justify-center items-center px-5 py-3 rounded-xl border border-white/15 hover:border-white/30 hover:bg-white/5 transition">
+              ▶︎ See a 90‑sec tour
+            </button>
+          </div>
+
+          <!-- Value bullets -->
+          <ul class="mt-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 text-sm text-white/70">
+            <li class="flex items-center gap-2"><span class="h-1.5 w-1.5 rounded-full bg-violet"></span> Shopping lists</li>
+            <li class="flex items-center gap-2"><span class="h-1.5 w-1.5 rounded-full bg-violet"></span> Todos</li>
+            <li class="flex items-center gap-2"><span class="h-1.5 w-1.5 rounded-full bg-violet"></span> Google Calendar</li>
+            <li class="flex items-center gap-2"><span class="h-1.5 w-1.5 rounded-full bg-violet"></span> Open Banking</li>
+          </ul>
+        </div>
+
+        <!-- Orbital visual -->
+        <div class="relative h-[360px] md:h-[460px]">
+          <!-- toggle chip -->
+          <button id="solarToggle" class="absolute right-0 -top-2 z-10 text-xs px-3 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white/80">
+            Solar system: Off
+          </button>
+
+          <div class="absolute inset-0 grid place-items-center">
+            <div class="relative"><!-- STYLIZED orbital system (default) -->
+              <div class="absolute inset-0 flex items-center justify-center orbit-stylized">
+                <div class="relative">
+                  <!-- static inner guide ring -->
+                  <span class="absolute -inset-6 rounded-full border border-white/10"></span>
+
+                  <!-- orbit 1 (fast) -->
+                  <div class="absolute -inset-12">
+                    <div class="absolute inset-0" style="transform: scaleY(0.82)">
+                      <div class="absolute inset-0 rounded-full border border-white/10 animate-spinSlow motion-reduce:animate-none" style="animation-duration: 18s">
+                        <span class="absolute -top-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-white shadow-glow"></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- orbit 2 (medium) -->
+                  <div class="absolute -inset-20">
+                    <div class="absolute inset-0" style="transform: scaleY(0.72)">
+                      <div class="absolute inset-0 rounded-full border border-white/5 animate-spinSlow motion-reduce:animate-none" style="animation-duration: 30s">
+                        <span class="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-white/90 shadow-glow"></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- orbit 3 (slow, reverse) -->
+                  <div class="absolute -inset-28">
+                    <div class="absolute inset-0" style="transform: scaleY(0.62)">
+                      <div class="absolute inset-0 rounded-full border border-white/5 motion-reduce:animate-none" style="animation: spinSlow 46s linear infinite reverse">
+                        <span class="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-violet/90 shadow-glow"></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- nucleus -->
+                  <span class="relative block w-3.5 h-3.5 rounded-full bg-white shadow-glow"></span>
+                </div>
+              </div>
+
+              <!-- SOLAR SYSTEM (accurate-ish, scaled) -->
+              <div class="absolute inset-0 flex items-center justify-center orbit-solar hidden select-none">
+                <div class="relative">
+                  <!-- Mercury -->
+                  <div class="absolute -inset-8">
+                    <div class="absolute inset-0" style="transform: scaleY(0.80)">
+                      <div class="absolute inset-0 rounded-full border border-white/10 motion-reduce:animate-none" style="animation: spinSlow 4s linear infinite">
+                        <span title="Mercury" class="absolute -top-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-white/90"></span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Venus -->
+                  <div class="absolute -inset-12">
+                    <div class="absolute inset-0" style="transform: scaleY(0.80)">
+                      <div class="absolute inset-0 rounded-full border border-white/10 motion-reduce:animate-none" style="animation: spinSlow 6.3s linear infinite">
+                        <span title="Venus" class="absolute -top-0.5 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-white/90"></span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Earth -->
+                  <div class="absolute -inset-16">
+                    <div class="absolute inset-0" style="transform: scaleY(0.80)">
+                      <div class="absolute inset-0 rounded-full border border-white/10 motion-reduce:animate-none" style="animation: spinSlow 8s linear infinite">
+                        <span title="Earth" class="absolute -top-0.5 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-white"></span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Mars -->
+                  <div class="absolute -inset-20">
+                    <div class="absolute inset-0" style="transform: scaleY(0.80)">
+                      <div class="absolute inset-0 rounded-full border border-white/10 motion-reduce:animate-none" style="animation: spinSlow 11s linear infinite">
+                        <span title="Mars" class="absolute -top-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-violet/80"></span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Jupiter -->
+                  <div class="absolute -inset-28">
+                    <div class="absolute inset-0" style="transform: scaleY(0.78)">
+                      <div class="absolute inset-0 rounded-full border border-white/10 motion-reduce:animate-none" style="animation: spinSlow 27s linear infinite">
+                        <span title="Jupiter" class="absolute -top-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-white/90"></span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Saturn -->
+                  <div class="absolute -inset-36">
+                    <div class="absolute inset-0" style="transform: scaleY(0.78)">
+                      <div class="absolute inset-0 rounded-full border border-white/10 motion-reduce:animate-none" style="animation: spinSlow 43s linear infinite">
+                        <span title="Saturn" class="absolute -top-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-white/70"></span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Uranus -->
+                  <div class="absolute -inset-48">
+                    <div class="absolute inset-0" style="transform: scaleY(0.76)">
+                      <div class="absolute inset-0 rounded-full border border-white/10 motion-reduce:animate-none" style="animation: spinSlow 73s linear infinite">
+                        <span title="Uranus" class="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-white/60"></span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Neptune -->
+                  <div class="absolute -inset-64">
+                    <div class="absolute inset-0" style="transform: scaleY(0.74)">
+                      <div class="absolute inset-0 rounded-full border border-white/10 motion-reduce:animate-none" style="animation: spinSlow 103s linear infinite">
+                        <span title="Neptune" class="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-white/50"></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- the Sun -->
+                  <span class="relative block w-4 h-4 rounded-full bg-white shadow-glow"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      <!-- Trust bar -->
+      <div class="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+        <div class="rounded-xl border border-white/10 p-4 bg-white/5">No spam. Unsubscribe anytime.</div>
+        <div class="rounded-xl border border-white/10 p-4 bg-white/5">Keep data on your device whenever possible.</div>
+        <div class="rounded-xl border border-white/10 p-4 bg-white/5">Built to work with your tools — not replace them.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== How it works ===== -->
+  <section id="how" class="relative py-20">
+    <div class="absolute inset-0 -z-10 bg-[linear-gradient(to_bottom,rgba(255,255,255,.04),transparent)]"></div>
+    <div class="max-w-7xl mx-auto px-4 md:px-6">
+      <h2 class="text-3xl md:text-4xl font-bold">How Orbit keeps you moving</h2>
+      <p class="mt-2 text-white/70 max-w-2xl">Three lightweight loops that reduce mental load without losing control.</p>
+
+      <div class="mt-10 grid md:grid-cols-3 gap-5">
+        <div class="rounded-2xl border border-white/10 p-6 bg-white/[0.04] hover:bg-white/[0.06] transition">
+          <div class="text-2xl">🧠</div>
+          <h3 class="mt-3 font-semibold text-xl">Daily Brief</h3>
+          <p class="mt-2 text-white/70">A morning snapshot that merges calendar, tasks and context — so you know exactly what matters next.</p>
+        </div>
+        <div class="rounded-2xl border border-white/10 p-6 bg-white/[0.04] hover:bg-white/[0.06] transition">
+          <div class="text-2xl">🔗</div>
+          <h3 class="mt-3 font-semibold text-xl">Orchestration</h3>
+          <p class="mt-2 text-white/70">Orbit coordinates your tools and routines; tasks & shopping lists live in Supabase (self‑hosted).</p>
+        </div>
+        <div class="rounded-2xl border border-white/10 p-6 bg-white/[0.04] hover:bg-white/[0.06] transition">
+          <div class="text-2xl">🎯</div>
+          <h3 class="mt-3 font-semibold text-xl">Focus Nudges</h3>
+          <p class="mt-2 text-white/70">Gentle, context‑aware prompts that keep you on track — never naggy, always optional.</p>
+        </div>
+      </div>
+
+      <div class="mt-8 text-sm text-white/60">Works great for overwhelmed professionals, working parents, and solo builders.</div>
+    </div>
+  </section>
+
+  <!-- ===== Benefits (objection‑handling) ===== -->
+  <section id="benefits" class="py-20">
+    <div class="max-w-7xl mx-auto px-4 md:px-6">
+      <h2 class="text-3xl md:text-4xl font-bold">Less juggling. More momentum.</h2>
+      <p class="mt-2 text-white/70 max-w-2xl">Designed for busy humans — not productivity maximalists.</p>
+
+      <div class="mt-10 grid md:grid-cols-3 gap-5">
+        <div class="rounded-2xl border border-white/10 p-6 bg-white/[0.04]">
+          <h3 class="font-semibold text-lg">Privacy‑first</h3>
+          <p class="mt-2 text-white/70">Default to processing on your device where possible. You stay in control of your data.</p>
+        </div>
+        <div class="rounded-2xl border border-white/10 p-6 bg-white/[0.04]">
+          <h3 class="font-semibold text-lg">Fewer apps</h3>
+          <p class="mt-2 text-white/70">Orbit sits on top of the tools you already use, reducing switching and duplication.</p>
+        </div>
+        <div class="rounded-2xl border border-white/10 p-6 bg-white/[0.04]">
+          <h3 class="font-semibold text-lg">Momentum by design</h3>
+          <p class="mt-2 text-white/70">Small wins add up — briefings, one‑tap deferrals, and gentle automation keep you moving.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Integrations ===== -->
+  <section id="integrations" class="py-20 relative">
+    <div class="max-w-7xl mx-auto px-4 md:px-6">
+      <h2 class="text-3xl md:text-4xl font-bold">Plays nice with your stack</h2>
+      <p class="mt-2 text-white/70 max-w-2xl">Shopping lists & todos live in your Supabase. Google Calendar connects on day one. Banking connects via Open Banking when enabled.</p>
+
+      <div class=\"mt-10 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4\">
+        <div class="rounded-xl border border-white/10 p-3 text-center bg-white/[0.04]">Google Calendar</div>
+        <div class="rounded-xl border border-white/10 p-3 text-center bg-white/[0.04]">Open Banking</div>
+        <div class="rounded-xl border border-white/10 p-3 text-center bg-white/[0.04]">Supabase (tasks & lists)<\/div>
+      </div>
+
+      <div class="mt-3 text-xs text-white/60">Supabase is self‑hosted only (no BYO/managed option). Open Banking connections are optional.</div>
+      <div class="mt-2 text-xs text-white/50">Logos are placeholders — swap for official brand assets if you have permission.</div>
+    </div>
+  </section>
+
+  <!-- ===== Waitlist (primary conversion) ===== -->
+  <section id="waitlist" class="py-20 relative">
+    <div class="absolute inset-0 -z-10 bg-[radial-gradient(40%_60%_at_50%_100%,rgba(110,68,255,.12),transparent)]"></div>
+    <div class="max-w-3xl mx-auto px-4 md:px-6">
+      <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-6 md:p-8">
+        <h2 class="text-2xl md:text-3xl font-bold">Get early access</h2>
+        <p class="mt-2 text-white/70">Be first to try Orbit. We’ll invite small cohorts, then open wider.</p>
+
+        <form id="waitlistForm" class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div>
+            <label for="firstName" class="text-sm text-white/70">First name</label>
+            <input id="firstName" name="firstName" required class="mt-1 w-full rounded-xl bg-white/[0.06] border border-white/10 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet/60" />
+          </div>
+          <div class="md:col-span-2">
+            <label for="email" class="text-sm text-white/70">Email</label>
+            <input id="email" name="email" type="email" required class="mt-1 w-full rounded-xl bg-white/[0.06] border border-white/10 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet/60" />
+          </div>
+          <div class="md:col-span-3">
+            <label for="role" class="text-sm text-white/70">Which best describes you?</label>
+            <select id="role" name="role" required class="mt-1 w-full rounded-xl bg-white/[0.06] border border-white/10 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet/60">
+              <option value="">Select…</option>
+              <option>Overwhelmed professional</option>
+              <option>Working parent</option>
+              <option>Senior executive</option>
+              <option>Freelancer / solopreneur</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <div class="md:col-span-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p class="text-xs text-white/60">No spam. Unsubscribe anytime.</p>
+            <button class="inline-flex justify-center items-center rounded-xl bg-violet px-5 py-3 font-semibold shadow-glow hover:scale-[1.02] transition" type="submit">Join the waitlist</button>
+          </div>
+        </form>
+
+        <div id="success" class="hidden mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-emerald-200">Thanks — you’re on the list. Check your inbox shortly.</div>
+        <div id="error" class="hidden mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-rose-200">Something went wrong. Please try again.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== FAQ ===== -->
+  <section id="faq" class="py-20">
+    <div class="max-w-5xl mx-auto px-4 md:px-6">
+      <h2 class="text-3xl md:text-4xl font-bold">Questions, answered</h2>
+      <div class="mt-8 divide-y divide-white/10 rounded-2xl border border-white/10 bg-white/[0.04]">
+        <details class="group p-5 open:bg-white/[0.02]">
+          <summary class="flex cursor-pointer list-none items-center justify-between text-lg font-semibold">How private is Orbit?
+            <span class="ml-4 text-white/50 group-open:rotate-45 transition">+</span>
+          </summary>
+          <p class="mt-3 text-white/70">We aim to do as much as possible on your device. When the cloud is required, we minimize data and retain it only as long as necessary.</p>
+        </details>
+        <details class="group p-5">
+          <summary class="flex cursor-pointer list-none items-center justify-between text-lg font-semibold">Do I need to change tools?
+            <span class="ml-4 text-white/50 group-open:rotate-45 transition">+</span>
+          </summary>
+          <p class="mt-3 text-white/70">No. Orbit sits on top of your existing stack — it connects, coordinates, and reduces switching.</p>
+        </details>
+        <details class="group p-5">
+          <summary class="flex cursor-pointer list-none items-center justify-between text-lg font-semibold">When can I try it?
+            <span class="ml-4 text-white/50 group-open:rotate-45 transition">+</span>
+          </summary>
+          <p class="mt-3 text-white/70">We’re inviting small groups from the waitlist first to shape the product, then opening more widely.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Footer ===== -->
+  <footer class="py-10 border-t border-white/10">
+    <div class="max-w-7xl mx-auto px-4 md:px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-white/60">
+      <div>© <span id="yyyy"></span> Orbit</div>
+      <div class="flex items-center gap-4">
+        <a class="hover:text-white" href="#waitlist">Get early access</a>
+        <a class="hover:text-white" href="#faq">FAQ</a>
+        <a class="hover:text-white" href="#top">Back to top</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ===== Demo Modal (simple) ===== -->
+  <div id="demoModal" class="fixed inset-0 z-[60] hidden items-center justify-center bg-black/70 p-4">
+    <div class="max-w-3xl w-full rounded-2xl overflow-hidden border border-white/10 bg-midnight">
+      <div class="flex items-center justify-between p-4 border-b border-white/10">
+        <div class="font-semibold">Orbit — 90‑second tour</div>
+        <button id="closeDemo" class="text-white/70 hover:text-white">✕</button>
+      </div>
+      <div class="p-4">
+        <div class="w-full aspect-video rounded-xl bg-white/[0.06] grid place-items-center text-white/60 text-sm">
+          (Embed your Loom/YouTube here)
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Year
+    document.getElementById('yyyy').textContent = new Date().getFullYear()
+
+    // Demo modal
+    const demoBtn = document.getElementById('demoBtn')
+    const demoModal = document.getElementById('demoModal')
+    const closeDemo = document.getElementById('closeDemo')
+    if (demoBtn) demoBtn.addEventListener('click', () => demoModal.classList.remove('hidden'))
+    ;[closeDemo, demoModal].forEach(el => el && el.addEventListener('click', e => { if (e.target === el || e.currentTarget === el) demoModal.classList.add('hidden') }))
+
+    // Waitlist capture (no backend — replace with your endpoint)
+    const form = document.getElementById('waitlistForm')
+    const successEl = document.getElementById('success')
+    const errorEl = document.getElementById('error')
+
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const data = Object.fromEntries(new FormData(form))
+
+      // Basic validation
+      if (!data.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+        alert('Please enter a valid email')
+        return
+      }
+
+      // Persist for UX continuity
+      try { localStorage.setItem('orbit_waitlist', JSON.stringify({ ...data, ts: Date.now() })) } catch {}
+
+      // 🔧 Replace with your API (e.g., /api/subscribe)
+      try {
+        await new Promise(r => setTimeout(r, 500)) // simulate network
+        successEl.classList.remove('hidden'); errorEl.classList.add('hidden')
+        form.reset()
+      } catch (err) {
+        successEl.classList.add('hidden'); errorEl.classList.remove('hidden')
+      }
+    })
+
+    // Solar system toggle — actual positions, ultra‑slow (real time)
+const solarToggle = document.getElementById('solarToggle');
+const stylized = document.querySelector('.orbit-stylized');
+const solar = document.querySelector('.orbit-solar');
+let solarTimer = null;
+
+// Low‑precision heliocentric mean longitudes at J2000 (deg) and sidereal periods (days)
+const planetDefs = [
+  {key:'mercury', a:0.387098, period:87.9691,   L0:252.250906, size:3},
+  {key:'venus',   a:0.723332, period:224.70069, L0:181.979801, size:4},
+  {key:'earth',   a:1.000000, period:365.256363004, L0:100.466457, size:4},
+  {key:'mars',    a:1.523679, period:686.97959, L0:355.433000, size:3},
+  {key:'jupiter', a:5.20260,  period:4332.589,  L0:34.351519,  size:5},
+  {key:'saturn',  a:9.55491,  period:10759.22,  L0:50.077444,  size:5},
+  {key:'uranus',  a:19.21845, period:30685.4,   L0:314.055005, size:4},
+  {key:'neptune', a:30.11039, period:60189.0,   L0:304.348665, size:4},
+];
+
+function daysSinceJ2000(t = Date.now()) {
+  const J2000 = Date.UTC(2000, 0, 1, 12, 0, 0); // 2000‑01‑01 12:00:00Z
+  return (t - J2000) / 86400000;
+}
+
+function buildSolar(container) {
+  if (container.dataset.built) return;
+  container.innerHTML = '';
+  const perspective = 0.78; // fake depth
+  const center = document.createElement('div');
+  center.className = 'absolute inset-0';
+  container.appendChild(center);
+
+  // scale AU non‑linearly so Neptune fits without crowding inner planets
+  const maxAU = planetDefs[planetDefs.length-1].a; // Neptune
+  const maxRadiusPx = 180; // outer radius in px
+  const base = 20; // inner padding
+  const scale = (maxRadiusPx - base) / Math.sqrt(maxAU);
+
+  planetDefs.forEach(p => {
+    const r = base + scale * Math.sqrt(p.a);
+    // orbit ring
+    const ring = document.createElement('div');
+    ring.style.position = 'absolute';
+    ring.style.left = '50%'; ring.style.top = '50%';
+    ring.style.width = (r*2) + 'px';
+    ring.style.height = (r*2*perspective) + 'px';
+    ring.style.marginLeft = (-r) + 'px';
+    ring.style.marginTop = (-r*perspective) + 'px';
+    ring.style.border = '1px solid rgba(255,255,255,0.12)';
+    ring.style.borderRadius = '50%';
+    center.appendChild(ring);
+
+    // planet dot
+    const dot = document.createElement('span');
+    dot.id = 'p-' + p.key;
+    dot.title = p.key[0].toUpperCase() + p.key.slice(1);
+    dot.style.position = 'absolute';
+    dot.style.left = '50%'; dot.style.top = '50%';
+    dot.style.width = p.size + 'px'; dot.style.height = p.size + 'px';
+    dot.style.marginLeft = (-p.size/2) + 'px';
+    dot.style.marginTop = (-p.size/2) + 'px';
+    dot.style.borderRadius = '9999px';
+    dot.style.background = 'rgba(255,255,255,0.95)';
+    dot.dataset.r = r; dot.dataset.persp = perspective;
+    center.appendChild(dot);
+  });
+
+  // the Sun
+  const sun = document.createElement('span');
+  sun.style.position='absolute'; sun.style.left='50%'; sun.style.top='50%';
+  sun.style.width='10px'; sun.style.height='10px';
+  sun.style.marginLeft='-5px'; sun.style.marginTop='-5px';
+  sun.style.borderRadius='9999px'; sun.style.background='white';
+  sun.style.boxShadow='0 0 20px rgba(255,255,255,0.5)';
+  center.appendChild(sun);
+
+  container.dataset.built = '1';
+}
+
+function updateSolar(container) {
+  const d = daysSinceJ2000();
+  planetDefs.forEach(p => {
+    const angleDeg = (p.L0 + 360 * (d / p.period)) % 360; // mean longitude
+    const angle = angleDeg * Math.PI / 180;
+    const dot = container.querySelector('#p-' + p.key);
+    if (!dot) return;
+    const r = parseFloat(dot.dataset.r);
+    const persp = parseFloat(dot.dataset.persp);
+    const x = r * Math.sin(angle);
+    const y = -r * Math.cos(angle) * persp;
+    dot.style.transform = `translate(${x}px, ${y}px)`;
+  });
+}
+
+function setSolar(on) {
+  if (!solar || !stylized || !solarToggle) return;
+  if (on) {
+    buildSolar(solar);
+    stylized.classList.add('hidden');
+    solar.classList.remove('hidden');
+    updateSolar(solar);
+    clearInterval(solarTimer);
+    // Realistic drift — update once per minute
+    solarTimer = setInterval(() => updateSolar(solar), 60000);
+    solarToggle.textContent = 'Solar system: On';
+  } else {
+    clearInterval(solarTimer);
+    solarTimer = null;
+    solar.classList.add('hidden');
+    stylized.classList.remove('hidden');
+    solarToggle.textContent = 'Solar system: Off';
+  }
+}
+
+if (solarToggle && stylized && solar) {
+  solarToggle.addEventListener('click', () => {
+    const goingOn = solar.classList.contains('hidden');
+    setSolar(goingOn);
+  });
+  // Default to ON for accurate positions
+  setSolar(true);
+}
+
+// Sticky subtle callout on exit‑intent (desktop only)
+    let exitShown = false
+    document.addEventListener('mouseleave', (e) => {
+      if (exitShown || window.innerWidth < 768) return
+      const bar = document.createElement('div')
+      bar.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-2xl border border-white/10 bg-white/[0.06] backdrop-blur px-4 py-3 shadow-glow'
+      bar.innerHTML = '<div class="flex items-center gap-3"><span class="inline-block w-2 h-2 rounded-full bg-violet animate-pulse"></span><span>Join the waitlist — we\'ll email when invites open.</span><a href="#waitlist" class="ml-3 inline-flex items-center rounded-lg px-3 py-1 bg-violet text-sm font-semibold">Count me in</a></div>'
+      document.body.appendChild(bar)
+      exitShown = true
+      setTimeout(() => bar.remove(), 8000)
+    })
+  </script>
+</body>
+</html>

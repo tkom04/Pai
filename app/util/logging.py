@@ -2,7 +2,7 @@
 import logging
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 import uuid
 
@@ -13,7 +13,7 @@ class StructuredFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         log_entry = {
             "level": record.levelname,
-            "ts": datetime.utcnow().isoformat() + "Z",
+            "ts": datetime.now(timezone.utc).isoformat(),
             "req_id": getattr(record, "req_id", None),
             "correlation_id": getattr(record, "correlation_id", None),
             "route": getattr(record, "route", None),
@@ -39,7 +39,7 @@ class StructuredFormatter(logging.Formatter):
 
 def setup_logging() -> logging.Logger:
     """Set up structured logging."""
-    logger = logging.getLogger("pai")
+    logger = logging.getLogger("orbit")
     logger.setLevel(logging.INFO)
 
     # Remove existing handlers

@@ -15,8 +15,15 @@ pytest-asyncio>=0.23.7
 mypy>=1.11.1
 ruff>=0.6.9
 
-# Google Calendar OAuth Integration
+# Google Calendar & Smart Home OAuth Integration
 google-auth>=2.34.0
 google-auth-oauthlib>=1.2.1
 google-auth-httplib2>=0.2.0
 google-api-python-client>=2.147.0
+
+# Supabase Python Client
+supabase>=2.0.0
+postgrest>=0.13.0
+
+# JWT token verification
+pyjwt>=2.8.0

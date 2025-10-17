@@ -13,7 +13,10 @@ def get_tool_names() -> list[str]:
         "create_task",
         "update_task_status",
         "create_event",
-        "ha_service_call",
+        "list_calendar_events",
+        "list_tasks",
+        "list_groceries",
+        "get_transactions",
     ]
 
 
@@ -69,11 +72,14 @@ def tool_schemas() -> Dict[str, Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "update_grocery_status",
-                "description": "Update a grocery item status.",
+                "description": "Update a grocery item status. Accepts either a UUID or a 1-based index (e.g., '1' for first item).",
                 "parameters": {
                 "type": "object",
                 "properties": {
-                    "id": {"type": "string"},
+                    "id": {
+                        "type": "string",
+                        "description": "UUID of the grocery item, or a 1-based numeric index as a string (e.g., '1', '2', '3'). Prefer using the UUID from list results when available."
+                    },
                     "status": {"type": "string", "enum": ["Needed", "Added", "Ordered"]},
                 },
                 "required": ["id", "status"],
@@ -103,11 +109,14 @@ def tool_schemas() -> Dict[str, Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "update_task_status",
-                "description": "Update a task status.",
+                "description": "Update a task status. Accepts either a UUID or a 1-based index (e.g., '1' for first task).",
                 "parameters": {
                 "type": "object",
                 "properties": {
-                    "id": {"type": "string"},
+                    "id": {
+                        "type": "string",
+                        "description": "UUID of the task, or a 1-based numeric index as a string (e.g., '1', '2', '3'). Prefer using the UUID from list results when available."
+                    },
                     "status": {"type": "string", "enum": ["Not Started", "In Progress", "Done"]},
                 },
                 "required": ["id", "status"],
@@ -133,22 +142,83 @@ def tool_schemas() -> Dict[str, Dict[str, Any]]:
                 },
             }
         },
-        "ha_service_call": {
+        "list_calendar_events": {
             "type": "function",
             "function": {
-                "name": "ha_service_call",
-                "description": "Call a Home Assistant service.",
+                "name": "list_calendar_events",
+                "description": "Read upcoming Google Calendar events within a date window. Returns events with id, summary, start/end times, and location. Defaults to showing next 7 days if no dates specified.",
                 "parameters": {
-                "type": "object",
-                "properties": {
-                    "domain": {"type": "string"},
-                    "service": {"type": "string"},
-                    "entity_id": {"type": "string"},
-                    "data": {"type": "object"},
-                },
-                "required": ["domain", "service"],
-                "additionalProperties": False,
-                },
+                    "type": "object",
+                    "properties": {
+                        "from_dt": {"type": "string", "description": "ISO8601 datetime (optional, defaults to now)"},
+                        "to_dt": {"type": "string", "description": "ISO8601 datetime (optional, defaults to now + 7 days)"},
+                        "max_results": {"type": "integer", "minimum": 1, "maximum": 250, "default": 50}
+                    },
+                    "additionalProperties": False
+                }
+            }
+        },
+        "list_tasks": {
+            "type": "function",
+            "function": {
+                "name": "list_tasks",
+                "description": "List tasks with optional status filter. Returns tasks with both idx (1-based index for easy reference like 'task 1') and id (UUID for updates). Use the id field when calling update_task_status.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "status": {
+                            "type": "string",
+                            "enum": ["todo", "in_progress", "done", "archived"],
+                            "description": "Filter by task status (optional)"
+                        },
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 250, "default": 50}
+                    },
+                    "additionalProperties": False
+                }
+            }
+        },
+        "list_groceries": {
+            "type": "function",
+            "function": {
+                "name": "list_groceries",
+                "description": "List grocery items with optional status filter. Returns items with both idx (1-based index for easy reference like 'item 1') and id (UUID for updates). Use the id field when calling update_grocery_status.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "status": {
+                            "type": "string",
+                            "enum": ["needed", "in_cart", "purchased"],
+                            "description": "Filter by grocery status (optional)"
+                        },
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}
+                    },
+                    "additionalProperties": False
+                }
+            }
+        },
+        "get_transactions": {
+            "type": "function",
+            "function": {
+                "name": "get_transactions",
+                "description": "Fetch real bank transactions from Open Banking API. Returns recent spending data with merchant names, amounts, categories, and timestamps. Use this to answer questions about spending habits, budgets, and financial patterns.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "account_id": {
+                            "type": "string",
+                            "description": "Bank account ID to fetch transactions from (optional - if not provided, uses first available account)"
+                        },
+                        "from_date": {
+                            "type": "string",
+                            "description": "Start date in YYYY-MM-DD format (optional, defaults to 90 days ago)"
+                        },
+                        "to_date": {
+                            "type": "string",
+                            "description": "End date in YYYY-MM-DD format (optional, defaults to today)"
+                        }
+                    },
+                    "additionalProperties": False
+                }
             }
         },
     }
