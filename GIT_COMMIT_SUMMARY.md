@@ -10,6 +10,21 @@
 - **Deleted:** 47 files
 - **Modified:** 11 files
 - **Added:** 6 new files + entire directories (pwa/, website/, supabase_migrations/, etc.)
+- **Major Features Added:** Open Banking integration with TrueLayer API
+
+### 🆕 NEW FEATURES ADDED
+
+#### Open Banking Integration
+- **`app/auth/open_banking.py`** - OAuth2 authentication manager for TrueLayer API
+- **`app/services/open_banking.py`** - Service for real-time transaction fetching
+- **`supabase_migrations/005_open_banking.sql`** - Database schema for OAuth tokens and bank accounts
+- **Backend modifications** - Updated models, main.py, and services to support Open Banking
+
+#### Complete Application Structure
+- **`pwa/`** - Full Progressive Web App with all components and pages
+- **`website/`** - Complete marketing website with landing pages
+- **`supabase_migrations/`** - Complete database migration history
+- **`scripts/`** - Organized startup scripts for all services
 
 ### 🗑️ DELETED FILES (47 total)
 
