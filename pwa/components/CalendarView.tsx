@@ -19,6 +19,7 @@ type CalendarViewType = 'month' | 'week' | 'day'
 export default function CalendarView() {
   const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null)
   const [currentDate, setCurrentDate] = useState(new Date())
   const [view, setView] = useState<CalendarViewType>('week')
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -35,6 +36,23 @@ export default function CalendarView() {
 
   useEffect(() => {
     fetchEvents()
+
+    // Check for auth success/error messages in URL
+    const urlParams = new URLSearchParams(window.location.search)
+    const authStatus = urlParams.get('auth')
+    const error = urlParams.get('error')
+
+    if (authStatus === 'success') {
+      showToast('Google Calendar connected successfully!', 'success')
+      // Clean up URL
+      window.history.replaceState({}, document.title, window.location.pathname)
+      // Refresh events
+      fetchEvents()
+    } else if (authStatus === 'error') {
+      showToast(`Calendar connection failed: ${error || 'Unknown error'}`, 'error')
+      // Clean up URL
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
   }, [currentDate, view])
 
   const fetchEvents = async () => {
@@ -50,11 +68,22 @@ export default function CalendarView() {
 
       const response = await api.get(`/events${params.toString() ? `?${params.toString()}` : ''}`)
       setEvents(response.data.events || [])
+      setAuthenticated(response.data.authenticated !== false)
     } catch (error) {
       showToast(`Failed to fetch events: ${handleApiError(error)}`, 'error')
       setEvents([])
+      setAuthenticated(false)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const connectGoogleCalendar = async () => {
+    try {
+      const response = await api.get('/auth/google')
+      window.location.href = response.data.authorization_url
+    } catch (error) {
+      showToast(`Failed to initiate Google Calendar connection: ${handleApiError(error)}`, 'error')
     }
   }
 
@@ -311,6 +340,27 @@ export default function CalendarView() {
             </button>
           </div>
         </div>
+
+        {/* Authentication Check */}
+        {authenticated === false && (
+          <div className="mb-6">
+            <Card className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border-blue-500/20">
+              <div className="text-center py-8">
+                <div className="text-6xl mb-4">📅</div>
+                <h3 className="text-xl font-semibold mb-2">Connect Google Calendar</h3>
+                <p className="text-white/70 mb-6">
+                  Connect your Google Calendar to view and manage your events.
+                </p>
+                <button
+                  onClick={connectGoogleCalendar}
+                  className="btn-primary"
+                >
+                  Connect Google Calendar
+                </button>
+              </div>
+            </Card>
+          </div>
+        )}
 
         {/* Calendar Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

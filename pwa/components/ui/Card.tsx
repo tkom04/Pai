@@ -63,7 +63,7 @@ export const StatCard: React.FC<StatCardProps> = ({
       <div className="flex items-start justify-between mb-4">
         <div>
           <p className="text-sm text-white/50 mb-1">{title}</p>
-          <h3 className="text-2xl font-bold">{value}</h3>
+          <h3 className="text-2xl font-bold text-white">{value}</h3>
           {subtitle && <p className="text-sm text-white/70 mt-1">{subtitle}</p>}
         </div>
         {icon && <span className="text-2xl">{icon}</span>}

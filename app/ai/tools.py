@@ -221,6 +221,116 @@ def tool_schemas() -> Dict[str, Dict[str, Any]]:
                 }
             }
         },
+        "budget_refresh": {
+            "type": "function",
+            "function": {
+                "name": "budget_refresh",
+                "description": "Refresh budget data by fetching latest transactions from bank accounts, processing them, and updating categorization. This is the main entry point for budget analysis. Use this when you need current spending data.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "lookback_days": {
+                            "type": "integer",
+                            "description": "Number of days to look back for transactions (1-365, default: 90)",
+                            "minimum": 1,
+                            "maximum": 365
+                        }
+                    },
+                    "additionalProperties": False
+                }
+            }
+        },
+        "get_budget_summary": {
+            "type": "function",
+            "function": {
+                "name": "get_budget_summary",
+                "description": "Get budget summary for a specific period showing spending by category, totals, and progress against targets. Requires budget_refresh to be called first.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "period": {
+                            "type": "string",
+                            "description": "Period in YYYY-MM format (e.g., '2024-01'). Defaults to current month.",
+                            "pattern": "^\\d{4}-\\d{2}$"
+                        }
+                    },
+                    "additionalProperties": False
+                }
+            }
+        },
+        "create_budget_category": {
+            "type": "function",
+            "function": {
+                "name": "create_budget_category",
+                "description": "Create a new budget category with spending target and settings. Use this to set up budget tracking for different spending areas.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "key": {
+                            "type": "string",
+                            "description": "Unique key for the category (lowercase, underscores only, e.g., 'groceries', 'transport')",
+                            "pattern": "^[a-z_]+$"
+                        },
+                        "label": {
+                            "type": "string",
+                            "description": "Display name for the category (e.g., 'Groceries & Food')"
+                        },
+                        "target": {
+                            "type": "number",
+                            "description": "Monthly spending target in GBP (must be positive)"
+                        },
+                        "rollover": {
+                            "type": "boolean",
+                            "description": "Whether unused budget should roll over to next month",
+                            "default": False
+                        }
+                    },
+                    "required": ["key", "label", "target"],
+                    "additionalProperties": False
+                }
+            }
+        },
+        "create_budget_rule": {
+            "type": "function",
+            "function": {
+                "name": "create_budget_rule",
+                "description": "Create a categorization rule to automatically assign transactions to budget categories based on merchant names, descriptions, or amounts.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "category_key": {
+                            "type": "string",
+                            "description": "Budget category key to assign matching transactions to"
+                        },
+                        "priority": {
+                            "type": "integer",
+                            "description": "Rule priority (0-1000, higher numbers take precedence)",
+                            "minimum": 0,
+                            "maximum": 1000,
+                            "default": 100
+                        },
+                        "merchant": {
+                            "type": "string",
+                            "description": "Merchant name to match (partial match, case insensitive)"
+                        },
+                        "description_contains": {
+                            "type": "string",
+                            "description": "Text that must be contained in transaction description"
+                        },
+                        "amount_min": {
+                            "type": "number",
+                            "description": "Minimum transaction amount to match"
+                        },
+                        "amount_max": {
+                            "type": "number",
+                            "description": "Maximum transaction amount to match"
+                        }
+                    },
+                    "required": ["category_key"],
+                    "additionalProperties": False
+                }
+            }
+        },
     }
 
 

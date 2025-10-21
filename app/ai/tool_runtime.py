@@ -339,6 +339,160 @@ async def _run_get_transactions(args: Dict[str, Any], user_id: str = None) -> Di
     }
 
 
+async def _run_budget_refresh(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Refresh budget data by fetching and processing transactions."""
+    try:
+        import requests
+
+        lookback_days = arguments.get("lookback_days", 90)
+
+        # Call the budget refresh endpoint
+        response = requests.post(
+            "http://localhost:8080/api/budget/refresh",
+            params={"lookback_days": lookback_days},
+            timeout=60,
+            headers={"X-API-Key": "your-api-key"}  # Add API key for authentication
+        )
+
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 409:
+            return {
+                "ok": False,
+                "error": "refresh_in_progress",
+                "message": "Budget refresh is already running. Please wait for it to complete."
+            }
+        else:
+            raise Exception(f"Budget refresh failed: {response.text}")
+
+    except Exception as e:
+        logger.error(f"Failed to refresh budget: {e}", exc_info=True)
+        raise ToolExecutionError(
+            f"Failed to refresh budget data: {str(e)}",
+            error_type="service_error"
+        )
+
+
+async def _run_get_budget_summary(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Get budget summary for a specific period."""
+    try:
+        import requests
+
+        period = arguments.get("period")
+        params = {}
+        if period:
+            params["period"] = period
+
+        # Call the budget summary endpoint
+        response = requests.get(
+            "http://localhost:8080/api/budget/summary",
+            params=params,
+            timeout=30,
+            headers={"X-API-Key": "your-api-key"}  # Add API key for authentication
+        )
+
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 422:
+            return {
+                "ok": False,
+                "error": "no_data",
+                "message": "No budget data available. Please run budget_refresh first."
+            }
+        else:
+            raise Exception(f"Budget summary failed: {response.text}")
+
+    except Exception as e:
+        logger.error(f"Failed to get budget summary: {e}", exc_info=True)
+        raise ToolExecutionError(
+            f"Failed to get budget summary: {str(e)}",
+            error_type="service_error"
+        )
+
+
+async def _run_create_budget_category(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a new budget category."""
+    try:
+        import requests
+
+        # Validate required fields
+        if not arguments.get("key") or not arguments.get("label") or not arguments.get("target"):
+            raise ToolExecutionError(
+                "Missing required fields: key, label, and target are required",
+                error_type="validation_error"
+            )
+
+        # Call the create category endpoint
+        response = requests.post(
+            "http://localhost:8080/api/budget/categories",
+            json=arguments,
+            timeout=30,
+            headers={"X-API-Key": "your-api-key"}  # Add API key for authentication
+        )
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise Exception(f"Category creation failed: {response.text}")
+
+    except Exception as e:
+        logger.error(f"Failed to create budget category: {e}", exc_info=True)
+        raise ToolExecutionError(
+            f"Failed to create budget category: {str(e)}",
+            error_type="service_error"
+        )
+
+
+async def _run_create_budget_rule(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a new budget categorization rule."""
+    try:
+        import requests
+
+        # Validate required fields
+        if not arguments.get("category_key"):
+            raise ToolExecutionError(
+                "Missing required field: category_key is required",
+                error_type="validation_error"
+            )
+
+        # Build matchers object
+        matchers = {}
+        if arguments.get("merchant"):
+            matchers["merchant"] = arguments["merchant"]
+        if arguments.get("description_contains"):
+            matchers["description_contains"] = arguments["description_contains"]
+        if arguments.get("amount_min") is not None:
+            matchers["amount_min"] = arguments["amount_min"]
+        if arguments.get("amount_max") is not None:
+            matchers["amount_max"] = arguments["amount_max"]
+
+        rule_data = {
+            "category_key": arguments["category_key"],
+            "priority": arguments.get("priority", 100),
+            "matchers": matchers
+        }
+
+        # Call the create rule endpoint
+        response = requests.post(
+            "http://localhost:8080/api/budget/rules",
+            json=rule_data,
+            timeout=30,
+            headers={"X-API-Key": "your-api-key"}  # Add API key for authentication
+        )
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise Exception(f"Rule creation failed: {response.text}")
+
+    except Exception as e:
+        logger.error(f"Failed to create budget rule: {e}", exc_info=True)
+        raise ToolExecutionError(
+            f"Failed to create budget rule: {str(e)}",
+            error_type="service_error"
+        )
+
+
 TOOL_DISPATCH: Dict[str, Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]] = {
     "budget_scan": _run_budget_scan,
     "add_to_groceries": _run_add_to_groceries,
@@ -350,6 +504,10 @@ TOOL_DISPATCH: Dict[str, Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]] 
     "list_tasks": _run_list_tasks,
     "list_groceries": _run_list_groceries,
     "get_transactions": _run_get_transactions,
+    "budget_refresh": _run_budget_refresh,
+    "get_budget_summary": _run_get_budget_summary,
+    "create_budget_category": _run_create_budget_category,
+    "create_budget_rule": _run_create_budget_rule,
 }
 
 

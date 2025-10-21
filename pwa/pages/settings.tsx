@@ -1,188 +1,356 @@
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/router'
-import Layout from '@/components/Layout'
+"use client"
+import { useState, useEffect } from 'react'
 import api from '@/lib/api'
-import { showToast } from '@/lib/errorHandler'
+import { handleApiError, showToast } from '@/lib/errorHandler'
+import { Card } from '@/components/ui/Card'
 
-export default function SettingsPage() {
-  const router = useRouter()
-  const [calendarConnected, setCalendarConnected] = useState(false)
-  const [isLoadingCalendar, setIsLoadingCalendar] = useState(true)
-  const [isConnecting, setIsConnecting] = useState(false)
+interface BudgetCategory {
+  id: string
+  key: string
+  label: string
+  target: number
+  rollover: boolean
+  order: number
+}
+
+interface BudgetSettings {
+  currency: string
+  cycle_start_day: number
+  show_ai_overview: boolean
+  consent_version?: string
+}
+
+const Settings = () => {
+  const [categories, setCategories] = useState<BudgetCategory[]>([])
+  const [settings, setSettings] = useState<BudgetSettings>({
+    currency: 'GBP',
+    cycle_start_day: 1,
+    show_ai_overview: false
+  })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  const [newCategory, setNewCategory] = useState({
+    key: '',
+    label: '',
+    target: '',
+    rollover: false
+  })
+
+  const [showAddCategory, setShowAddCategory] = useState(false)
 
   useEffect(() => {
-    checkCalendarStatus()
+    loadData()
+  }, [])
 
-    // Check if we just came back from OAuth
-    if (router.query.auth === 'success') {
-      showToast('Google Calendar connected successfully!', 'success')
-      // Remove the query parameter
-      router.replace('/settings', undefined, { shallow: true })
-      checkCalendarStatus()
-    }
-  }, [router.query])
-
-  const checkCalendarStatus = async () => {
+  const loadData = async () => {
     try {
-      const response = await api.get('/auth/google/status')
-      setCalendarConnected(response.data.authenticated)
+      setLoading(true)
+      const [categoriesRes, settingsRes] = await Promise.all([
+        api.get('/api/budget/categories'),
+        api.get('/api/budget/settings').catch(() => ({ data: settings }))
+      ])
+
+      setCategories(categoriesRes.data.categories || [])
+      setSettings(settingsRes.data || settings)
     } catch (error) {
-      console.error('Failed to check calendar status:', error)
-      setCalendarConnected(false)
+      showToast(`Failed to load settings: ${handleApiError(error)}`, 'error')
     } finally {
-      setIsLoadingCalendar(false)
+      setLoading(false)
     }
   }
 
-  const handleConnectCalendar = async () => {
-    setIsConnecting(true)
-    try {
-      const response = await api.get('/auth/google')
-      const authUrl = response.data.authorization_url
-      // Redirect to Google OAuth
-      window.location.href = authUrl
-    } catch (error) {
-      showToast('Failed to initiate Google Calendar connection', 'error')
-      setIsConnecting(false)
-    }
-  }
-
-  const handleDisconnectCalendar = async () => {
-    if (!confirm('Are you sure you want to disconnect Google Calendar?')) {
+  const handleAddCategory = async () => {
+    if (!newCategory.key || !newCategory.label || !newCategory.target) {
+      showToast('Please fill in all required fields', 'error')
       return
     }
 
+    // Optimistic UI update
+    const tempId = 'temp-' + Date.now()
+    const tempCategory = {
+      id: tempId,
+      key: newCategory.key,
+      label: newCategory.label,
+      target: parseFloat(newCategory.target),
+      rollover: newCategory.rollover,
+      order: categories.length
+    }
+
+    setCategories(prev => [...prev, tempCategory])
+    setShowAddCategory(false)
+    setNewCategory({ key: '', label: '', target: '', rollover: false })
+
     try {
-      await api.post('/auth/google/revoke')
-      setCalendarConnected(false)
-      showToast('Google Calendar disconnected', 'success')
+      const result = await api.post('/api/budget/categories', {
+        key: newCategory.key,
+        label: newCategory.label,
+        target: parseFloat(newCategory.target),
+        rollover: newCategory.rollover,
+        order: categories.length
+      })
+
+      // Replace temp with real
+      setCategories(prev => prev.map(c =>
+        c.id === tempId ? { ...result.data.category, id: result.data.category.id } : c
+      ))
+      showToast('Category added successfully', 'success')
     } catch (error) {
-      showToast('Failed to disconnect Google Calendar', 'error')
+      // Rollback on failure
+      setCategories(prev => prev.filter(c => c.id !== tempId))
+      showToast(`Failed to add category: ${handleApiError(error)}`, 'error')
     }
   }
 
+  const handleDeleteCategory = async (categoryKey: string) => {
+    if (!confirm('Are you sure you want to delete this category?')) {
+      return
+    }
+
+    // Optimistic UI update
+    const originalCategories = [...categories]
+    setCategories(prev => prev.filter(c => c.key !== categoryKey))
+
+    try {
+      await api.delete(`/api/budget/categories/${categoryKey}`)
+      showToast('Category deleted successfully', 'success')
+    } catch (error) {
+      // Rollback on failure
+      setCategories(originalCategories)
+      showToast(`Failed to delete category: ${handleApiError(error)}`, 'error')
+    }
+  }
+
+  const handleUpdateCategory = async (categoryKey: string, updates: Partial<BudgetCategory>) => {
+    // Optimistic UI update
+    const originalCategories = [...categories]
+    setCategories(prev => prev.map(c =>
+      c.key === categoryKey ? { ...c, ...updates } : c
+    ))
+
+    try {
+      await api.post('/api/budget/categories', {
+        key: categoryKey,
+        label: updates.label || '',
+        target: updates.target || 0,
+        rollover: updates.rollover || false,
+        order: updates.order || 0
+      })
+      showToast('Category updated successfully', 'success')
+    } catch (error) {
+      // Rollback on failure
+      setCategories(originalCategories)
+      showToast(`Failed to update category: ${handleApiError(error)}`, 'error')
+    }
+  }
+
+  const handleSaveSettings = async () => {
+    setSaving(true)
+    try {
+      await api.post('/api/budget/settings', settings)
+      showToast('Settings saved successfully', 'success')
+    } catch (error) {
+      showToast(`Failed to save settings: ${handleApiError(error)}`, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      </div>
+    )
+  }
+
   return (
-    <Layout>
-      <div className="p-6 h-full overflow-y-auto bg-gradient-to-br from-black via-gray-900/20 to-black">
-        <div className="max-w-4xl mx-auto">
-          <div className="mb-8">
-            <h2 className="text-3xl font-bold mb-2 gradient-text">Settings</h2>
-            <p className="text-white/50">Customize your experience</p>
+    <div className="container mx-auto px-4 py-8">
+      <h1 className="text-3xl font-bold mb-8">Settings</h1>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Budget Categories */}
+        <Card>
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold">Budget Categories</h2>
+            <button
+              onClick={() => setShowAddCategory(true)}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Add Category
+            </button>
           </div>
 
-          <div className="space-y-6">
-            {/* Account Section */}
-            <div className="widget-card hover:scale-[1.01] transition-transform duration-300">
-              <h3 className="text-lg font-semibold mb-4">Account</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm text-white/70 mb-2">Email</label>
-                  <input
-                    type="email"
-                    className="input"
-                    placeholder="your.email@example.com"
-                    disabled
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-white/70 mb-2">Display Name</label>
-                  <input
-                    type="text"
-                    className="input"
-                    placeholder="Your Name"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Preferences Section */}
-            <div className="widget-card hover:scale-[1.01] transition-transform duration-300">
-              <h3 className="text-lg font-semibold mb-4">Preferences</h3>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
+          <div className="space-y-4">
+            {categories.map((category) => (
+              <div key={category.id} className="border rounded-lg p-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <p className="font-medium">Notifications</p>
-                    <p className="text-sm text-white/50">Receive push notifications</p>
+                    <label className="block text-sm font-medium mb-1">Label</label>
+                    <input
+                      type="text"
+                      value={category.label}
+                      onChange={(e) => handleUpdateCategory(category.key, { label: e.target.value })}
+                      className="w-full border rounded-lg px-3 py-2 text-sm"
+                    />
                   </div>
-                  <button className="btn-secondary">
-                    Enable
-                  </button>
-                </div>
-                <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-medium">Dark Mode</p>
-                    <p className="text-sm text-white/50">Currently enabled</p>
+                    <label className="block text-sm font-medium mb-1">Target (£)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={category.target}
+                      onChange={(e) => handleUpdateCategory(category.key, { target: parseFloat(e.target.value) })}
+                      className="w-full border rounded-lg px-3 py-2 text-sm"
+                    />
                   </div>
-                  <button className="btn-secondary">
-                    Toggle
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Integrations Section */}
-            <div className="widget-card hover:scale-[1.01] transition-transform duration-300">
-              <h3 className="text-lg font-semibold mb-4">Integrations</h3>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <span className="text-2xl">📅</span>
-                    <div>
-                      <p className="font-medium">Google Calendar</p>
-                      {isLoadingCalendar ? (
-                        <p className="text-sm text-white/50">Checking status...</p>
-                      ) : (
-                        <p className="text-sm text-white/50">
-                          {calendarConnected ? (
-                            <span className="text-green-400">✓ Connected</span>
-                          ) : (
-                            <span className="text-yellow-400">Not Connected</span>
-                          )}
-                        </p>
-                      )}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={category.rollover}
+                        onChange={(e) => handleUpdateCategory(category.key, { rollover: e.target.checked })}
+                        className="mr-2"
+                      />
+                      <label className="text-sm">Rollover</label>
                     </div>
+                    <button
+                      onClick={() => handleDeleteCategory(category.key)}
+                      className="text-red-600 hover:text-red-800 text-sm"
+                    >
+                      Delete
+                    </button>
                   </div>
-                  {!isLoadingCalendar && (
-                    calendarConnected ? (
-                      <button
-                        onClick={handleDisconnectCalendar}
-                        className="btn-secondary hover:bg-red-500/20 hover:text-red-400"
-                      >
-                        Disconnect
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleConnectCalendar}
-                        disabled={isConnecting}
-                        className="btn-secondary hover:bg-green-500/20 hover:text-green-400"
-                      >
-                        {isConnecting ? (
-                          <div className="flex items-center space-x-2">
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                            <span>Connecting...</span>
-                          </div>
-                        ) : (
-                          'Connect Calendar'
-                        )}
-                      </button>
-                    )
-                  )}
                 </div>
               </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* Budget Settings */}
+        <Card>
+          <h2 className="text-xl font-semibold mb-6">Budget Settings</h2>
+
+          <div className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium mb-2">Currency</label>
+              <select
+                value={settings.currency}
+                onChange={(e) => setSettings({ ...settings, currency: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2"
+              >
+                <option value="GBP">GBP (£)</option>
+                <option value="USD">USD ($)</option>
+                <option value="EUR">EUR (€)</option>
+              </select>
             </div>
 
-            {/* About Section */}
-            <div className="widget-card hover:scale-[1.01] transition-transform duration-300">
-              <h3 className="text-lg font-semibold mb-4">About</h3>
-              <p className="text-white/70 text-sm">
-                Pai - Your Personal AI Assistant<br />
-                Version 1.0.0
+            <div>
+              <label className="block text-sm font-medium mb-2">Budget Cycle Start Day</label>
+              <input
+                type="number"
+                min="1"
+                max="31"
+                value={settings.cycle_start_day}
+                onChange={(e) => setSettings({ ...settings, cycle_start_day: parseInt(e.target.value) })}
+                className="w-full border rounded-lg px-3 py-2"
+              />
+              <p className="text-sm text-gray-600 mt-1">
+                Day of the month when your budget cycle starts (1-31)
               </p>
+            </div>
+
+            <div className="flex items-center">
+              <input
+                type="checkbox"
+                id="ai_overview"
+                checked={settings.show_ai_overview}
+                onChange={(e) => setSettings({ ...settings, show_ai_overview: e.target.checked })}
+                className="mr-2"
+              />
+              <label htmlFor="ai_overview" className="text-sm">
+                Show AI-powered budget insights
+              </label>
+            </div>
+
+            <button
+              onClick={handleSaveSettings}
+              disabled={saving}
+              className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save Settings'}
+            </button>
+          </div>
+        </Card>
+      </div>
+
+      {/* Add Category Modal */}
+      {showAddCategory && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Add Budget Category</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Key (lowercase, underscores)</label>
+                <input
+                  type="text"
+                  value={newCategory.key}
+                  onChange={(e) => setNewCategory({ ...newCategory, key: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2"
+                  placeholder="e.g., groceries, transport"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Label</label>
+                <input
+                  type="text"
+                  value={newCategory.label}
+                  onChange={(e) => setNewCategory({ ...newCategory, label: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2"
+                  placeholder="e.g., Groceries & Food"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Target Amount (£)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newCategory.target}
+                  onChange={(e) => setNewCategory({ ...newCategory, target: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2"
+                  placeholder="0.00"
+                />
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="rollover"
+                  checked={newCategory.rollover}
+                  onChange={(e) => setNewCategory({ ...newCategory, rollover: e.target.checked })}
+                  className="mr-2"
+                />
+                <label htmlFor="rollover" className="text-sm">Enable rollover</label>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowAddCategory(false)}
+                className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddCategory}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Add Category
+              </button>
             </div>
           </div>
         </div>
-      </div>
-    </Layout>
+      )}
+    </div>
   )
 }
 
+export default Settings

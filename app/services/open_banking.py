@@ -118,6 +118,7 @@ class OpenBankingService:
                 # Map TrueLayer transaction to our Transaction model
                 transaction = Transaction(
                     transaction_id=tx_data["transaction_id"],
+                    account_id=account_id,
                     timestamp=timestamp,
                     description=tx_data.get("description", ""),
                     amount=tx_data["amount"],
@@ -134,6 +135,17 @@ class OpenBankingService:
             return transactions
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error fetching transactions: {e.response.status_code} - {e.response.text}", exc_info=True)
+
+            # Check for SCA error (403 sca_exceeded)
+            if e.response.status_code == 403:
+                try:
+                    payload = e.response.json()
+                    if payload.get("error") == "sca_exceeded":
+                        from ..main import ReauthRequired
+                        raise ReauthRequired(connection_id=account_id, provider_id="truelayer")
+                except Exception:
+                    pass
+
             raise ValueError(f"Failed to fetch transactions: {e.response.status_code}")
         except Exception as e:
             logger.error(f"Error fetching transactions: {e}", exc_info=True)
@@ -155,6 +167,7 @@ class OpenBankingService:
             for account in accounts:
                 account_data = {
                     "user_id": user_id,
+                    "account_id": account.id,
                     "provider_account_id": account.provider_account_id,
                     "provider": account.provider,
                     "account_type": account.account_type,

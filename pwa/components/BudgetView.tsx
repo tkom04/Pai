@@ -3,80 +3,118 @@ import { useState, useEffect } from 'react'
 import api from '@/lib/api'
 import { handleApiError, showToast } from '@/lib/errorHandler'
 import { Card, StatCard } from './ui/Card'
+import BankConnectionCard from './BankConnectionCard'
+import DuplicateDetection from './DuplicateDetection'
+import BudgetSetup from '../pages/budget/setup'
 
-interface Budget {
-  id: string
-  name: string
-  amount: number
+interface BudgetCategory {
+  key: string
+  label: string
+  target: number
   spent: number
-  category: string
-  period: 'monthly' | 'weekly' | 'yearly'
-  start_date: string
-  end_date: string
+  remaining: number
+  rollover: boolean
 }
 
-interface Transaction {
+interface BudgetSummary {
+  period: string
+  last_updated: string
+  totals: {
+    spent: number
+    income: number
+    savings: number
+  }
+  categories: BudgetCategory[]
+  coverage_pct: number
+}
+
+interface BankConnection {
   id: string
-  description: string
-  amount: number
-  category: string
-  date: string
-  type: 'income' | 'expense'
+  institution_id: string
+  institution_name: string
+  institution_display_name: string
+  institution_logo: string
+  status: 'active' | 'expired' | 'revoked'
+  created_at: string
+  last_sync: string
+  days_until_expiry: number | null
 }
 
 const BudgetView = () => {
-  const [budgets, setBudgets] = useState<Budget[]>([])
-  const [transactions, setTransactions] = useState<Transaction[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showCreateBudgetModal, setShowCreateBudgetModal] = useState(false)
-  const [showAddTransactionModal, setShowAddTransactionModal] = useState(false)
-  const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | 'year'>('month')
-
-  // Open Banking state
+  const [budgetData, setBudgetData] = useState<BudgetSummary | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('')
+  const [showCreateCategoryModal, setShowCreateCategoryModal] = useState(false)
+  const [showCreateRuleModal, setShowCreateRuleModal] = useState(false)
   const [bankConnected, setBankConnected] = useState(false)
   const [checkingBankStatus, setCheckingBankStatus] = useState(true)
-  const [connectingBank, setConnectingBank] = useState(false)
+  const [bankConnections, setBankConnections] = useState<BankConnection[]>([])
+  const [loadingConnections, setLoadingConnections] = useState(false)
+  const [showBankManagement, setShowBankManagement] = useState(false)
+  const [showDuplicateDetection, setShowDuplicateDetection] = useState(false)
+  const [showBudgetSetup, setShowBudgetSetup] = useState(false)
 
-  const [newBudget, setNewBudget] = useState({
-    name: '',
-    amount: '',
-    category: '',
-    period: 'monthly' as 'monthly' | 'weekly' | 'yearly'
+  const [newCategory, setNewCategory] = useState({
+    key: '',
+    label: '',
+    target: '',
+    rollover: false,
+    order: 0
   })
 
-  const [newTransaction, setNewTransaction] = useState({
-    description: '',
-    amount: '',
-    category: '',
-    type: 'expense' as 'income' | 'expense'
+  const [newRule, setNewRule] = useState({
+    priority: 100,
+    matchers: {} as Record<string, any>,
+    category_key: ''
   })
 
+  // Initialize period
   useEffect(() => {
-    fetchData()
-    checkBankConnectionStatus()
+    const now = new Date()
+    const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    setSelectedPeriod(currentPeriod)
+  }, [])
 
-    // Check for auth callback success/error
+  // Check bank connection status
+  useEffect(() => {
+    checkBankStatus()
+
+    // Check for bank auth success/error messages in URL
     const urlParams = new URLSearchParams(window.location.search)
     const authStatus = urlParams.get('auth')
-    const authError = urlParams.get('error')
+    const error = urlParams.get('error')
 
     if (authStatus === 'success') {
-      showToast('Bank connected successfully! 🎉', 'success')
-      setBankConnected(true)
+      showToast('Bank account connected successfully!', 'success')
       // Clean up URL
-      window.history.replaceState({}, '', '/budget')
+      window.history.replaceState({}, document.title, window.location.pathname)
+      // Refresh bank status
+      checkBankStatus()
     } else if (authStatus === 'error') {
-      showToast(`Bank connection failed: ${authError || 'Unknown error'}`, 'error')
+      showToast(`Bank connection failed: ${error || 'Unknown error'}`, 'error')
       // Clean up URL
-      window.history.replaceState({}, '', '/budget')
+      window.history.replaceState({}, document.title, window.location.pathname)
     }
   }, [])
 
-  const checkBankConnectionStatus = async () => {
-    setCheckingBankStatus(true)
+  // Load budget data when period changes
+  useEffect(() => {
+    if (selectedPeriod) {
+      loadBudgetSummary()
+    }
+  }, [selectedPeriod])
+
+  const checkBankStatus = async () => {
     try {
+      setCheckingBankStatus(true)
       const response = await api.get('/auth/open-banking/status')
       setBankConnected(response.data.authenticated)
+
+      // Also load bank connections if authenticated
+      if (response.data.authenticated) {
+        await loadBankConnections()
+      }
     } catch (error) {
       console.error('Failed to check bank status:', error)
       setBankConnected(false)
@@ -85,521 +123,541 @@ const BudgetView = () => {
     }
   }
 
-  const connectBank = async () => {
-    setConnectingBank(true)
+  const loadBankConnections = async () => {
+    try {
+      setLoadingConnections(true)
+      const response = await api.get('/api/banking/connections')
+      if (response.data.ok) {
+        setBankConnections(response.data.connections)
+      }
+    } catch (error) {
+      console.error('Failed to load bank connections:', error)
+      showToast('Failed to load bank connections', 'error')
+    } finally {
+      setLoadingConnections(false)
+    }
+  }
+
+  const handleRevokeConnection = (connectionId: string) => {
+    setBankConnections(prev => prev.filter(conn => conn.id !== connectionId))
+
+    // Check if any connections remain
+    const remainingConnections = bankConnections.filter(conn => conn.id !== connectionId)
+    if (remainingConnections.length === 0) {
+      setBankConnected(false)
+    }
+  }
+
+  const handleSyncConnection = (connectionId: string) => {
+    // Update last sync time for the connection
+    setBankConnections(prev => prev.map(conn =>
+      conn.id === connectionId
+        ? { ...conn, last_sync: new Date().toISOString() }
+        : conn
+    ))
+  }
+
+  const handleConnectBank = async () => {
     try {
       const response = await api.get('/auth/open-banking')
-      const authUrl = response.data.authorization_url
-      // Redirect to TrueLayer OAuth
-      window.location.href = authUrl
+      window.location.href = response.data.authorization_url
     } catch (error) {
-      showToast(`Failed to initiate bank connection: ${handleApiError(error)}`, 'error')
-      setConnectingBank(false)
+      showToast('Failed to connect bank', 'error')
     }
   }
 
-  const disconnectBank = async () => {
-    if (!confirm('Are you sure you want to disconnect your bank? This will remove access to your transaction data.')) {
-      return
-    }
-
-    try {
-      await api.post('/auth/open-banking/disconnect')
-      showToast('Bank disconnected successfully', 'success')
-      setBankConnected(false)
-    } catch (error) {
-      showToast(`Failed to disconnect bank: ${handleApiError(error)}`, 'error')
-    }
-  }
-
-  const fetchData = async () => {
+  const handleRefresh = async () => {
     setLoading(true)
     try {
-      const [budgetsRes, transactionsRes] = await Promise.all([
-        api.get('/budget_scan'),
-        api.get('/events')
-      ])
-      setBudgets(budgetsRes.data.budgets || [])
-      setTransactions(transactionsRes.data.transactions || [])
-    } catch (error) {
-      showToast(`Failed to fetch budget data: ${handleApiError(error)}`, 'error')
+      const result = await api.post('/api/budget/refresh', {}, {
+        params: { lookback_days: 90 }
+      })
+
+      // Handle warnings
+      if (result.data.warnings) {
+        result.data.warnings.forEach((w: any) => {
+          showToast(w.message, 'warning')
+        })
+      }
+
+      setLastUpdated(new Date(result.data.last_updated).toLocaleString())
+
+      // Fetch summary
+      const summary = await api.get('/api/budget/summary', {
+        params: { period: selectedPeriod }
+      })
+      setBudgetData(summary.data)
+
+      showToast(`✓ Refreshed ${result.data.transactions_count} transactions (${(result.data.coverage * 100).toFixed(0)}% categorized)`, 'success')
+    } catch (error: any) {
+      if (error.response?.status === 409) {
+        showToast('Refresh already in progress', 'info')
+      } else if (error.response?.status === 401) {
+        showToast('Session expired. Please reconnect your bank', 'error')
+        // Redirect to connect flow
+        window.location.href = '/budget?connect=true'
+      } else {
+        showToast(`Failed to refresh: ${handleApiError(error)}`, 'error')
+      }
     } finally {
       setLoading(false)
     }
   }
 
-  const createBudget = async () => {
-    if (!newBudget.name || !newBudget.amount || !newBudget.category) {
-      showToast('Please fill in all fields', 'error')
-      return
-    }
-
+  const loadBudgetSummary = async () => {
     try {
-      await api.post('/budget_scan', {
-        period: newBudget.period,
-        source: 'manual',
-        path: newBudget.name
+      const response = await api.get('/api/budget/summary', {
+        params: { period: selectedPeriod }
       })
-      showToast('Budget created successfully', 'success')
-      setShowCreateBudgetModal(false)
-      setNewBudget({
-        name: '',
-        amount: '',
-        category: '',
-        period: 'monthly'
-      })
-      fetchData()
-    } catch (error) {
-      showToast(`Failed to create budget: ${handleApiError(error)}`, 'error')
+      setBudgetData(response.data)
+    } catch (error: any) {
+      if (error.response?.status === 422) {
+        // No data available, show helpful message
+        const message = error.response?.data?.message || 'No budget data available'
+        showToast(message, 'info')
+        setBudgetData(null)
+      } else if (error.response?.status === 401) {
+        // Not authenticated, redirect to bank connection
+        showToast('Please connect your bank first', 'warning')
+        setBankConnected(false)
+      } else {
+        showToast(`Failed to load budget: ${handleApiError(error)}`, 'error')
+        setBudgetData(null)
+      }
     }
   }
 
-  const addTransaction = async () => {
-    if (!newTransaction.description || !newTransaction.amount || !newTransaction.category) {
-      showToast('Please fill in all fields', 'error')
-      return
-    }
 
+  const handleCreateCategory = async () => {
     try {
-      await api.post('/create_event', {
-        title: newTransaction.description,
-        start: new Date().toISOString(),
-        end: new Date().toISOString(),
-        description: `Amount: ${newTransaction.amount}, Category: ${newTransaction.category}`
-      })
-      showToast('Transaction added successfully', 'success')
-      setShowAddTransactionModal(false)
-      setNewTransaction({
-        description: '',
-        amount: '',
-        category: '',
-        type: 'expense'
-      })
-      fetchData()
+      const categoryData = {
+        ...newCategory,
+        target: parseFloat(newCategory.target),
+        order: budgetData?.categories.length || 0
+      }
+
+      await api.post('/api/budget/categories', categoryData)
+      setShowCreateCategoryModal(false)
+      setNewCategory({ key: '', label: '', target: '', rollover: false, order: 0 })
+      showToast('Category created successfully', 'success')
+      loadBudgetSummary()
     } catch (error) {
-      showToast(`Failed to add transaction: ${handleApiError(error)}`, 'error')
+      showToast(`Failed to create category: ${handleApiError(error)}`, 'error')
     }
   }
 
-  // Calculate totals
-  const totalIncome = transactions
-    .filter(t => t.type === 'income')
-    .reduce((sum, t) => sum + t.amount, 0)
-
-  const totalExpenses = transactions
-    .filter(t => t.type === 'expense')
-    .reduce((sum, t) => sum + t.amount, 0)
-
-  const balance = totalIncome - totalExpenses
-
-  const totalBudget = budgets.reduce((sum, b) => sum + b.amount, 0)
-  const totalSpent = budgets.reduce((sum, b) => sum + b.spent, 0)
-  const remainingBudget = totalBudget - totalSpent
-
-  // Get spending by category
-  const spendingByCategory = transactions
-    .filter(t => t.type === 'expense')
-    .reduce((acc, t) => {
-      acc[t.category] = (acc[t.category] || 0) + t.amount
-      return acc
-    }, {} as Record<string, number>)
-
-  const categories = Object.keys(spendingByCategory).sort((a, b) =>
-    spendingByCategory[b] - spendingByCategory[a]
-  )
-
-  // Mock chart data (you can integrate a real chart library)
-  const getChartHeight = (value: number, max: number) => {
-    return Math.max(10, (value / max) * 100)
+  const handleCreateRule = async () => {
+    try {
+      await api.post('/api/budget/rules', newRule)
+      setShowCreateRuleModal(false)
+      setNewRule({ priority: 100, matchers: {}, category_key: '' })
+      showToast('Rule created successfully', 'success')
+    } catch (error) {
+      showToast(`Failed to create rule: ${handleApiError(error)}`, 'error')
+    }
   }
 
-  const maxSpending = Math.max(...Object.values(spendingByCategory))
+  const handlePeriodChange = (period: string) => {
+    setSelectedPeriod(period)
+  }
+
+  const generatePeriodOptions = () => {
+    const options = []
+    const now = new Date()
+
+    for (let i = 0; i < 12; i++) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const period = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+      const label = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
+      options.push({ value: period, label })
+    }
+
+    return options
+  }
+
+  if (checkingBankStatus) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      </div>
+    )
+  }
+
+  if (!bankConnected) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-2xl mx-auto text-center">
+          <Card className="bg-white/5 border-white/10">
+            <h1 className="text-3xl font-bold mb-4 text-white">Budget Management</h1>
+            <p className="text-white/70 mb-8">
+              Connect your bank account to start tracking your spending and managing your budget.
+            </p>
+            <button
+              onClick={handleConnectBank}
+              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Connect Bank Account
+            </button>
+          </Card>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="p-6 h-full overflow-y-auto">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">Budget</h1>
-            <p className="text-white/50">Track your finances and spending</p>
-          </div>
-          <div className="flex items-center space-x-3 mt-4 md:mt-0">
+    <div className="container mx-auto px-4 py-8">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-white">Budget Overview</h1>
+          {lastUpdated && (
+            <p className="text-white/70 text-sm mt-1">
+              Last updated: {lastUpdated}
+            </p>
+          )}
+        </div>
+        <div className="flex gap-4">
+          <button
+            onClick={() => setShowBankManagement(!showBankManagement)}
+            className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors"
+          >
+            {showBankManagement ? 'Hide Banks' : 'Manage Banks'}
+          </button>
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+          >
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
+          <button
+            onClick={() => setShowCreateCategoryModal(true)}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+          >
+            Add Category
+          </button>
+          <button
+            onClick={() => setShowCreateRuleModal(true)}
+            className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition-colors"
+          >
+            Add Rule
+          </button>
+          <button
+            onClick={() => setShowDuplicateDetection(true)}
+            className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors"
+          >
+            Check Duplicates
+          </button>
+          <button
+            onClick={() => setShowBudgetSetup(true)}
+            className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors"
+          >
+            AI Setup
+          </button>
+        </div>
+      </div>
+
+      {/* Period Selector */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium mb-2 text-white">Period</label>
+        <select
+          value={selectedPeriod}
+          onChange={(e) => handlePeriodChange(e.target.value)}
+          className="border border-white/20 rounded-lg px-3 py-2 bg-white/5 text-white"
+        >
+          {generatePeriodOptions().map(option => (
+            <option key={option.value} value={option.value} className="bg-gray-800 text-white">
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Bank Management Section */}
+      {showBankManagement && (
+        <div className="mb-8">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-white">Bank Connections</h2>
             <button
-              onClick={() => setShowAddTransactionModal(true)}
-              className="btn-secondary"
+              onClick={handleConnectBank}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
             >
-              + Transaction
-            </button>
-            <button
-              onClick={() => setShowCreateBudgetModal(true)}
-              className="btn-primary"
-            >
-              + Budget
+              <span>+</span>
+              <span>Add Bank</span>
             </button>
           </div>
-        </div>
 
-        {/* Open Banking Connection Banner */}
-        {!checkingBankStatus && (
-          <Card className={`p-4 mb-6 ${bankConnected ? 'border-l-4 border-green-500' : 'border-l-4 border-yellow-500'}`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  bankConnected ? 'bg-green-500/20' : 'bg-yellow-500/20'
-                }`}>
-                  <span className="text-xl">{bankConnected ? '🏦' : '⚠️'}</span>
-                </div>
-                <div>
-                  <h3 className="font-semibold">
-                    {bankConnected ? 'Bank Connected' : 'Connect Your Bank'}
-                  </h3>
-                  <p className="text-sm text-white/70">
-                    {bankConnected
-                      ? 'Your bank is connected via Open Banking. Real-time transaction data is available.'
-                      : 'Connect your bank to fetch real transactions and get accurate spending insights.'}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={bankConnected ? disconnectBank : connectBank}
-                disabled={connectingBank}
-                className={bankConnected ? 'btn-ghost' : 'btn-primary'}
-              >
-                {connectingBank ? 'Connecting...' : bankConnected ? 'Disconnect' : 'Connect Bank'}
-              </button>
+          {loadingConnections ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <span className="ml-2 text-white">Loading connections...</span>
             </div>
-          </Card>
-        )}
-
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <StatCard
-            title="Balance"
-            value={`$${balance.toLocaleString()}`}
-            icon="💰"
-            trend={balance > 0 ? 'up' : 'down'}
-            trendValue={`${Math.abs(balance).toFixed(0)} this month`}
-          />
-          <StatCard
-            title="Income"
-            value={`$${totalIncome.toLocaleString()}`}
-            icon="📈"
-            trend="up"
-            trendValue="+12% from last month"
-          />
-          <StatCard
-            title="Expenses"
-            value={`$${totalExpenses.toLocaleString()}`}
-            icon="📉"
-            trend="down"
-            trendValue="-5% from last month"
-          />
-          <StatCard
-            title="Remaining Budget"
-            value={`$${remainingBudget.toLocaleString()}`}
-            subtitle={`of $${totalBudget.toLocaleString()}`}
-            icon="🎯"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Spending by Category */}
-          <div className="lg:col-span-2">
-            <Card className="p-6">
-              <h3 className="text-lg font-semibold mb-6">Spending by Category</h3>
-
-              {loading ? (
-                <div className="space-y-4">
-                  {[1, 2, 3, 4].map(i => (
-                    <div key={i} className="skeleton h-16"></div>
-                  ))}
-                </div>
-              ) : categories.length > 0 ? (
-                <div className="space-y-4">
-                  {categories.slice(0, 6).map(category => {
-                    const amount = spendingByCategory[category]
-                    const percentage = (amount / totalExpenses) * 100
-
-                    return (
-                      <div key={category} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium capitalize">{category}</span>
-                          <span className="text-sm text-white/70">
-                            ${amount.toFixed(2)} ({percentage.toFixed(1)}%)
-                          </span>
-                        </div>
-                        <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-purple-600 rounded-full transition-all duration-500"
-                            style={{ width: `${percentage}%` }}
-                          />
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : (
-                <p className="text-white/50 text-center py-8">No spending data available</p>
-              )}
-            </Card>
-          </div>
-
-          {/* Budget Overview */}
-          <div>
-            <Card className="p-6">
-              <h3 className="text-lg font-semibold mb-4">Budget Overview</h3>
-
-              {loading ? (
-                <div className="space-y-3">
-                  {[1, 2, 3].map(i => (
-                    <div key={i} className="skeleton h-20"></div>
-                  ))}
-                </div>
-              ) : budgets.length > 0 ? (
-                <div className="space-y-3">
-                  {budgets.map(budget => {
-                    const percentage = (budget.spent / budget.amount) * 100
-                    const isOverBudget = percentage > 100
-
-                    return (
-                      <div
-                        key={budget.id}
-                        className="p-4 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-medium">{budget.name}</h4>
-                          <span className={`text-xs px-2 py-1 rounded-full ${
-                            isOverBudget ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'
-                          }`}>
-                            {percentage.toFixed(0)}%
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm text-white/70 mb-2">
-                          <span>${budget.spent.toFixed(2)}</span>
-                          <span>${budget.amount.toFixed(2)}</span>
-                        </div>
-                        <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-500 ${
-                              isOverBudget ? 'bg-red-500' : 'bg-green-500'
-                            }`}
-                            style={{ width: `${Math.min(percentage, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : (
-                <p className="text-white/50 text-center py-8">No budgets created</p>
-              )}
-            </Card>
-          </div>
-        </div>
-
-        {/* Recent Transactions */}
-        <Card className="p-6 mt-6">
-          <h3 className="text-lg font-semibold mb-4">Recent Transactions</h3>
-
-          {loading ? (
-            <div className="space-y-3">
-              {[1, 2, 3, 4, 5].map(i => (
-                <div key={i} className="skeleton h-16"></div>
-              ))}
-            </div>
-          ) : transactions.length > 0 ? (
-            <div className="space-y-3">
-              {transactions.slice(0, 10).map(transaction => (
-                <div
-                  key={transaction.id}
-                  className="flex items-center justify-between p-4 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-                >
-                  <div className="flex items-center space-x-4">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                      transaction.type === 'income' ? 'bg-green-500/20' : 'bg-red-500/20'
-                    }`}>
-                      <span className="text-lg">
-                        {transaction.type === 'income' ? '📈' : '📉'}
-                      </span>
-                    </div>
-                    <div>
-                      <p className="font-medium">{transaction.description}</p>
-                      <p className="text-sm text-white/50">
-                        {new Date(transaction.date).toLocaleDateString()} • {transaction.category}
-                      </p>
-                    </div>
-                  </div>
-                  <p className={`font-semibold ${
-                    transaction.type === 'income' ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                    {transaction.type === 'income' ? '+' : '-'}${transaction.amount.toFixed(2)}
-                  </p>
-                </div>
+          ) : bankConnections.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {bankConnections.map((connection) => (
+                <BankConnectionCard
+                  key={connection.id}
+                  connection={connection}
+                  onRevoke={handleRevokeConnection}
+                  onSync={handleSyncConnection}
+                />
               ))}
             </div>
           ) : (
-            <p className="text-white/50 text-center py-8">No transactions yet</p>
+            <div className="text-center py-8">
+              <div className="text-white/70 mb-4">
+                <svg className="mx-auto h-12 w-12 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-medium text-white mb-2">No bank connections</h3>
+              <p className="text-white/70 mb-4">Connect your bank accounts to start tracking your spending</p>
+              <button
+                onClick={handleConnectBank}
+                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Connect Your First Bank
+              </button>
+            </div>
           )}
-        </Card>
-      </div>
+        </div>
+      )}
 
-      {/* Create Budget Modal */}
-      {showCreateBudgetModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-md p-6">
-            <h2 className="text-2xl font-bold mb-6">Create New Budget</h2>
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-sm w-full mx-4 border border-white/10">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <h3 className="text-lg font-semibold mb-2 text-white">Refreshing Budget Data</h3>
+              <p className="text-white/70 text-sm">
+                Fetching transactions from your bank accounts...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {/* Budget Summary */}
+      {budgetData && (
+        <>
+          {/* Totals */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <StatCard
+              title="Total Spent"
+              value={`£${budgetData.totals.spent.toFixed(2)}`}
+              color="red"
+            />
+            <StatCard
+              title="Total Income"
+              value={`£${budgetData.totals.income.toFixed(2)}`}
+              color="green"
+            />
+            <StatCard
+              title="Categorization"
+              value={`${(budgetData.coverage_pct * 100).toFixed(0)}%`}
+              color="blue"
+            />
+          </div>
+
+          {/* Categories */}
+          <Card className="bg-white/5 border-white/10">
+            <h2 className="text-xl font-semibold mb-4 text-white">Budget Categories</h2>
+            <div className="space-y-4">
+              {budgetData.categories.map((category) => (
+                <div key={category.key} className="border border-white/20 rounded-lg p-4 bg-white/5">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="font-medium text-white">{category.label}</h3>
+                    <span className="text-sm text-white/70">
+                      £{category.spent.toFixed(2)} / £{category.target.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="w-full bg-white/20 rounded-full h-2">
+                    <div
+                      className={`h-2 rounded-full ${
+                        category.spent > category.target ? 'bg-red-500' : 'bg-blue-500'
+                      }`}
+                      style={{
+                        width: `${Math.min((category.spent / category.target) * 100, 100)}%`
+                      }}
+                    ></div>
+                  </div>
+                  <div className="flex justify-between text-sm mt-1">
+                    <span className={category.remaining < 0 ? 'text-red-600' : 'text-green-600'}>
+                      {category.remaining < 0 ? 'Over budget' : `£${category.remaining.toFixed(2)} remaining`}
+                    </span>
+                    {category.rollover && (
+                      <span className="text-blue-600">Rollover enabled</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </>
+      )}
+
+      {/* Create Category Modal */}
+      {showCreateCategoryModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Create Budget Category</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Name *</label>
+                <label className="block text-sm font-medium mb-1">Key (lowercase, underscores)</label>
                 <input
                   type="text"
-                  value={newBudget.name}
-                  onChange={(e) => setNewBudget({ ...newBudget, name: e.target.value })}
-                  className="input"
-                  placeholder="Budget name"
+                  value={newCategory.key}
+                  onChange={(e) => setNewCategory({ ...newCategory, key: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2"
+                  placeholder="e.g., groceries, transport"
                 />
               </div>
-
               <div>
-                <label className="block text-sm font-medium mb-2">Amount *</label>
+                <label className="block text-sm font-medium mb-1">Label</label>
+                <input
+                  type="text"
+                  value={newCategory.label}
+                  onChange={(e) => setNewCategory({ ...newCategory, label: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2"
+                  placeholder="e.g., Groceries & Food"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Target Amount (£)</label>
                 <input
                   type="number"
-                  value={newBudget.amount}
-                  onChange={(e) => setNewBudget({ ...newBudget, amount: e.target.value })}
-                  className="input"
+                  step="0.01"
+                  value={newCategory.target}
+                  onChange={(e) => setNewCategory({ ...newCategory, target: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2"
                   placeholder="0.00"
                 />
               </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Category *</label>
+              <div className="flex items-center">
                 <input
-                  type="text"
-                  value={newBudget.category}
-                  onChange={(e) => setNewBudget({ ...newBudget, category: e.target.value })}
-                  className="input"
-                  placeholder="e.g., Food, Transportation"
+                  type="checkbox"
+                  id="rollover"
+                  checked={newCategory.rollover}
+                  onChange={(e) => setNewCategory({ ...newCategory, rollover: e.target.checked })}
+                  className="mr-2"
                 />
+                <label htmlFor="rollover" className="text-sm">Enable rollover</label>
               </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowCreateCategoryModal(false)}
+                className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateCategory}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {/* Create Rule Modal */}
+      {showCreateRuleModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Create Budget Rule</h3>
+            <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Period</label>
+                <label className="block text-sm font-medium mb-1">Category</label>
                 <select
-                  value={newBudget.period}
-                  onChange={(e) => setNewBudget({ ...newBudget, period: e.target.value as 'weekly' | 'monthly' | 'yearly' })}
-                  className="input"
+                  value={newRule.category_key}
+                  onChange={(e) => setNewRule({ ...newRule, category_key: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2"
                 >
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="yearly">Yearly</option>
+                  <option value="">Select category</option>
+                  {budgetData?.categories.map((cat) => (
+                    <option key={cat.key} value={cat.key}>
+                      {cat.label}
+                    </option>
+                  ))}
                 </select>
               </div>
-            </div>
-
-            <div className="flex justify-end space-x-3 mt-6">
-              <button
-                onClick={() => setShowCreateBudgetModal(false)}
-                className="btn-ghost"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={createBudget}
-                className="btn-primary"
-              >
-                Create Budget
-              </button>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* Add Transaction Modal */}
-      {showAddTransactionModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-md p-6">
-            <h2 className="text-2xl font-bold mb-6">Add Transaction</h2>
-
-            <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Type</label>
-                <div className="flex space-x-3">
-                  <button
-                    onClick={() => setNewTransaction({ ...newTransaction, type: 'expense' })}
-                    className={`flex-1 py-2 rounded-lg font-medium transition-colors ${
-                      newTransaction.type === 'expense'
-                        ? 'bg-red-500 text-white'
-                        : 'bg-white/10 text-white/70'
-                    }`}
-                  >
-                    Expense
-                  </button>
-                  <button
-                    onClick={() => setNewTransaction({ ...newTransaction, type: 'income' })}
-                    className={`flex-1 py-2 rounded-lg font-medium transition-colors ${
-                      newTransaction.type === 'income'
-                        ? 'bg-green-500 text-white'
-                        : 'bg-white/10 text-white/70'
-                    }`}
-                  >
-                    Income
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Description *</label>
-                <input
-                  type="text"
-                  value={newTransaction.description}
-                  onChange={(e) => setNewTransaction({ ...newTransaction, description: e.target.value })}
-                  className="input"
-                  placeholder="Transaction description"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Amount *</label>
+                <label className="block text-sm font-medium mb-1">Priority (0-1000)</label>
                 <input
                   type="number"
-                  value={newTransaction.amount}
-                  onChange={(e) => setNewTransaction({ ...newTransaction, amount: e.target.value })}
-                  className="input"
-                  placeholder="0.00"
+                  min="0"
+                  max="1000"
+                  value={newRule.priority}
+                  onChange={(e) => setNewRule({ ...newRule, priority: parseInt(e.target.value) })}
+                  className="w-full border rounded-lg px-3 py-2"
                 />
               </div>
-
               <div>
-                <label className="block text-sm font-medium mb-2">Category *</label>
+                <label className="block text-sm font-medium mb-1">Merchant Name</label>
                 <input
                   type="text"
-                  value={newTransaction.category}
-                  onChange={(e) => setNewTransaction({ ...newTransaction, category: e.target.value })}
-                  className="input"
-                  placeholder="e.g., Food, Salary"
+                  value={newRule.matchers.merchant || ''}
+                  onChange={(e) => setNewRule({
+                    ...newRule,
+                    matchers: { ...newRule.matchers, merchant: e.target.value }
+                  })}
+                  className="w-full border rounded-lg px-3 py-2"
+                  placeholder="e.g., Tesco"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Description Contains</label>
+                <input
+                  type="text"
+                  value={newRule.matchers.description_contains || ''}
+                  onChange={(e) => setNewRule({
+                    ...newRule,
+                    matchers: { ...newRule.matchers, description_contains: e.target.value }
+                  })}
+                  className="w-full border rounded-lg px-3 py-2"
+                  placeholder="e.g., coffee"
                 />
               </div>
             </div>
-
-            <div className="flex justify-end space-x-3 mt-6">
+            <div className="flex justify-end gap-3 mt-6">
               <button
-                onClick={() => setShowAddTransactionModal(false)}
-                className="btn-ghost"
+                onClick={() => setShowCreateRuleModal(false)}
+                className="px-4 py-2 border rounded-lg hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
-                onClick={addTransaction}
-                className="btn-primary"
+                onClick={handleCreateRule}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
               >
-                Add Transaction
+                Create
               </button>
             </div>
-          </Card>
+          </div>
         </div>
       )}
+
+      {/* Duplicate Detection Modal */}
+      <DuplicateDetection
+        isOpen={showDuplicateDetection}
+        onClose={() => setShowDuplicateDetection(false)}
+        onConfirm={(txHash, isDuplicate) => {
+          console.log(`Transaction ${txHash} marked as ${isDuplicate ? 'duplicate' : 'not duplicate'}`)
+        }}
+      />
+
+      {/* Budget Setup Wizard */}
+      <BudgetSetup
+        isOpen={showBudgetSetup}
+        onClose={() => setShowBudgetSetup(false)}
+        onComplete={() => {
+          setShowBudgetSetup(false)
+          loadBudgetSummary() // Refresh budget data
+        }}
+      />
     </div>
   )
 }

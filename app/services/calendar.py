@@ -12,10 +12,10 @@ from ..util.time import make_aware, to_aware_utc, utc_now
 class CalendarService:
     """Service for Google Calendar operations with OAuth authentication."""
 
-    def __init__(self):
+    def __init__(self, user_id: str = "default-user"):
         self.calendar_id = "primary"  # Use primary calendar by default
         self._service = None
-        self.user_id = "default-user"  # Use default-user for dev mode
+        self.user_id = user_id
 
     async def _get_service(self):
         """Get or create authenticated Google Calendar service."""

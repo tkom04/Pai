@@ -97,12 +97,4 @@ Write-Host ""
 Write-Host "TIP: Each service runs in its own window" -ForegroundColor Cyan
 Write-Host "TIP: Close windows or press Ctrl+C to stop" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Press any key to open the marketing website in your browser..."
-$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-
-# Open marketing website in default browser
-Start-Process "http://localhost:3001"
-
-Write-Host ""
-Write-Host "Orbit is now running! Happy organizing!" -ForegroundColor Cyan
-
+Write-Host "All Services running! :P"

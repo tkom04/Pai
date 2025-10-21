@@ -1,6 +1,7 @@
 """Pydantic models for request/response schemas."""
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Literal
+from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -239,6 +240,7 @@ class BankAccount(BaseModel):
 class Transaction(BaseModel):
     """Transaction data (fetched in real-time, NEVER stored)."""
     transaction_id: str
+    account_id: str  # Real account ID from TrueLayer
     timestamp: datetime
     description: str
     amount: float
@@ -287,3 +289,81 @@ class OpenBankingAuthStatusResponse(BaseModel):
     authenticated: bool
     provider: Optional[str] = None
     message: Optional[str] = None
+
+
+# ==================== Budget System Models ====================
+
+class NormalizedTransaction(BaseModel):
+    """Internal transaction model with processing metadata."""
+    id: str
+    posted_at: datetime
+    amount: Decimal
+    currency: str
+    description: str
+    merchant: Optional[str] = None
+    mcc: Optional[str] = None
+    account_id: str  # Real account ID from TrueLayer
+    is_transfer: bool = False
+    is_duplicate: bool = False
+    category: Optional[str] = None
+    category_confidence: Literal["low", "medium", "high"] = "low"
+
+    @field_validator('posted_at')
+    @classmethod
+    def ensure_timezone_aware(cls, v: datetime) -> datetime:
+        """Ensure datetime is timezone-aware."""
+        if v is None:
+            return v
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
+
+
+class BudgetCategory(BaseModel):
+    """Budget category with target and settings."""
+    key: str
+    label: str
+    target: Decimal = Field(gt=0)  # Must be positive
+    rollover: bool = False
+    order: int = 0
+
+
+class BudgetRule(BaseModel):
+    """Categorization rule for transactions."""
+    priority: int = 100
+    matchers: Dict[str, Any]
+    category_key: str
+    created_by: str = "user"
+
+
+class BudgetSettings(BaseModel):
+    """User budget preferences."""
+    currency: str = "GBP"
+    cycle_start_day: int = Field(ge=1, le=31)
+    show_ai_overview: bool = False
+    consent_version: Optional[str] = None
+
+
+class BudgetSummaryResponse(BaseModel):
+    """Response model for budget summary."""
+    period: str
+    last_updated: datetime
+    totals: Dict[str, Decimal]
+    categories: List[Dict[str, Any]]
+    coverage_pct: float
+
+
+class CreateBudgetCategoryRequest(BaseModel):
+    """Request to create/update budget category."""
+    key: str = Field(min_length=1, max_length=50, pattern=r'^[a-z_]+$')
+    label: str = Field(min_length=1, max_length=100)
+    target: Decimal = Field(gt=0)
+    rollover: bool = False
+    order: int = 0
+
+
+class CreateBudgetRuleRequest(BaseModel):
+    """Request to create categorization rule."""
+    matchers: Dict[str, Any]
+    category_key: str
+    priority: int = Field(ge=0, le=1000)
